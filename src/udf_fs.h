@@ -81,4 +81,15 @@ int udf_read_dir(struct udf_fs *fs, const struct long_ad *icb,
 
 struct file_entry *udf_read_file_entry(struct udf_fs *fs, const struct long_ad *icb);
 
+/**
+ * File content
+ */
+
+uint32_t udf_file_lba(struct udf_fs *fs, const struct file_entry *fe, uint32_t file_block,
+                      uint32_t *extent_length);
+
+uint32_t udf_read_file_blocks(struct udf_fs *fs, const struct file_entry *fe,
+                              void *buf, uint32_t file_block, uint32_t num_blocks, int flags);
+
+
 #endif /* UDFREAD_UDF_FS_H_ */

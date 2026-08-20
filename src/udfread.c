@@ -65,27 +65,6 @@ static char *_str_dup(const char *s)
 }
 
 /*
- * Block access
- *
- * read block(s) from absolute lba
- */
-
-static uint32_t _read_blocks(udfread_block_input *input,
-                             uint32_t lba, void *buf, uint32_t nblocks,
-                             int flags)
-{
-    int result;
-
-    if (!input || (int)nblocks < 1) {
-        return 0;
-    }
-
-    result = input->read(input, lba, buf, nblocks, flags);
-
-    return result < 0 ? 0 : (uint32_t)result;
-}
-
-/*
  * Cached directory data
  */
 
@@ -691,48 +670,6 @@ void udfread_file_close(UDFFILE *p)
  * block access
  */
 
-static uint32_t _file_lba(UDFFILE *p, uint32_t file_block, uint32_t *extent_length)
-{
-    udfread *udf = p->udf;
-    const struct file_entry *fe;
-    unsigned int i;
-    uint32_t     ad_size;
-
-    fe = p->fe;
-
-    for (i = 0; i < fe->u.ads.num_ad; i++) {
-        const struct long_ad *ad = &fe->u.ads.ad[0];
-        ad_size = (ad[i].length + UDF_BLOCK_SIZE - 1) / UDF_BLOCK_SIZE;
-        if (file_block < ad_size) {
-
-            if (ad[i].extent_type != ECMA_AD_EXTENT_NORMAL) {
-                if (ad[i].extent_type == ECMA_AD_EXTENT_AD) {
-                    udf_error("unsupported allocation descriptor: extent type %u\n", ad[i].extent_type);
-                }
-                return 0;
-            }
-
-            if (!ad[i].lba) {
-                /* empty file / no allocated space */
-                return 0;
-            }
-
-            if (ad[i].partition != udf->fs.part.p[0].number) {
-                udf_error("file partition %u != %u\n", ad[i].partition, udf->fs.part.p[0].number);
-            }
-
-            if (extent_length) {
-                *extent_length = ad_size - file_block;
-            }
-            return udf->fs.part.p[0].lba + ad[i].lba + file_block;
-        }
-
-        file_block -= ad_size;
-    }
-
-    return 0;
-}
-
 uint32_t udfread_file_lba(UDFFILE *p, uint32_t file_block)
 {
     udfread *udf;
@@ -742,61 +679,19 @@ uint32_t udfread_file_lba(UDFFILE *p, uint32_t file_block)
     }
     udf = p->udf;
 
-    if (p->fe->content_inline) {
-        udf_error("can't map lba for inline file\n");
-        return 0;
-    }
-
-    return _file_lba(p, file_block, NULL);
+    return udf_file_lba(&udf->fs, p->fe, file_block, NULL);
 }
 
 uint32_t udfread_read_blocks(UDFFILE *p, void *buf, uint32_t file_block, uint32_t num_blocks, int flags)
 {
     udfread *udf;
-    uint32_t i;
 
     if (!p || !num_blocks || !buf) {
         return 0;
     }
     udf = p->udf;
 
-    if (p->fe->content_inline) {
-        udf_error("can't read blocks from inline file\n");
-        return 0;
-    }
-
-    for (i = 0; i < num_blocks; ) {
-        uint32_t extent_length = 0;
-        uint32_t lba;
-        uint8_t *block = (uint8_t *)buf + UDF_BLOCK_SIZE * i;
-
-        lba = _file_lba(p, file_block + i, &extent_length);
-        udf_trace("map block %u to lba %u\n", file_block + i, lba);
-
-        if (!lba) {
-            /* unallocated/unwritten block or EOF */
-            uint32_t file_blocks = (udfread_file_size(p) + UDF_BLOCK_SIZE - 1) / UDF_BLOCK_SIZE;
-            if (file_block + i < file_blocks) {
-                udf_trace("zero-fill unallocated / unwritten block %u\n", file_block + i);
-                memset(block, 0, UDF_BLOCK_SIZE);
-                i++;
-                continue;
-            }
-            udf_error("block %u outside of file (size %u blocks)\n", file_block + i, file_blocks);
-            break;
-        }
-
-        if (extent_length > num_blocks - i) {
-            extent_length = num_blocks - i;
-        }
-
-        extent_length = _read_blocks(udf->fs.input, lba, block, extent_length, flags);
-        if (extent_length < 1) {
-            break;
-        }
-        i += extent_length;
-    }
-    return i;
+    return udf_read_file_blocks(&udf->fs, p->fe, buf, file_block, num_blocks, flags);
 }
 
 /*
@@ -814,7 +709,7 @@ static ssize_t _read(UDFFILE *p, void *buf, size_t bytes)
     if (pos_off) {
         size_t chunk_size = UDF_BLOCK_SIZE - pos_off;
         if (!p->block_valid) {
-            if (udfread_read_blocks(p, p->block, file_block, 1, 0) != 1) {
+            if (udf_read_file_blocks(&p->udf->fs, p->fe, p->block, file_block, 1, 0) != 1) {
                 return -1;
             }
             p->block_valid = 1;
@@ -830,7 +725,7 @@ static ssize_t _read(UDFFILE *p, void *buf, size_t bytes)
     /* read full block(s) ? */
     if (bytes >= UDF_BLOCK_SIZE) {
         uint32_t num_blocks = bytes / UDF_BLOCK_SIZE;
-        num_blocks = udfread_read_blocks(p, buf, file_block, num_blocks, 0);
+        num_blocks = udf_read_file_blocks(&p->udf->fs, p->fe, buf, file_block, num_blocks, 0);
         if (num_blocks < 1) {
             return -1;
         }
@@ -839,7 +734,7 @@ static ssize_t _read(UDFFILE *p, void *buf, size_t bytes)
     }
 
     /* read beginning of a block */
-    if (udfread_read_blocks(p, p->block, file_block, 1, 0) != 1) {
+    if (udf_read_file_blocks(&p->udf->fs, p->fe, p->block, file_block, 1, 0) != 1) {
         return -1;
     }
     p->block_valid = 1;

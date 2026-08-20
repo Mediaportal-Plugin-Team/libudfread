@@ -364,6 +364,94 @@ struct file_entry *udf_read_file_entry(struct udf_fs *fs, const struct long_ad *
     return fe;
 }
 
+uint32_t udf_file_lba(struct udf_fs *fs, const struct file_entry *fe, uint32_t file_block, uint32_t *extent_length)
+{
+    unsigned int i;
+    uint32_t     ad_size;
+
+    if (fe->content_inline) {
+        udf_error("can't map lba for inline file\n");
+        return 0;
+    }
+
+    for (i = 0; i < fe->u.ads.num_ad; i++) {
+        const struct long_ad *ad = &fe->u.ads.ad[0];
+        ad_size = (ad[i].length + UDF_BLOCK_SIZE - 1) / UDF_BLOCK_SIZE;
+        if (file_block < ad_size) {
+
+            if (ad[i].extent_type != ECMA_AD_EXTENT_NORMAL) {
+                if (ad[i].extent_type == ECMA_AD_EXTENT_AD) {
+                    udf_error("unsupported allocation descriptor: extent type %u\n", ad[i].extent_type);
+                }
+                return 0;
+            }
+
+            if (!ad[i].lba) {
+                /* empty file / no allocated space */
+                return 0;
+            }
+
+            if (ad[i].partition != fs->part.p[0].number) {
+                udf_error("file partition %u != %u\n", ad[i].partition, fs->part.p[0].number);
+            }
+
+            if (extent_length) {
+                *extent_length = ad_size - file_block;
+            }
+            return fs->part.p[0].lba + ad[i].lba + file_block;
+        }
+
+        file_block -= ad_size;
+    }
+
+    return 0;
+}
+
+uint32_t udf_read_file_blocks(struct udf_fs *fs, const struct file_entry *fe,
+                              void *buf, uint32_t file_block, uint32_t num_blocks, int flags)
+{
+    uint32_t i;
+
+    if (fe->content_inline) {
+        udf_error("can't read blocks from inline file\n");
+        return 0;
+    }
+
+    for (i = 0; i < num_blocks; ) {
+        uint32_t extent_length = 0;
+        uint32_t lba;
+        uint8_t *block = (uint8_t *)buf + UDF_BLOCK_SIZE * i;
+        int got;
+
+        lba = udf_file_lba(fs, fe, file_block + i, &extent_length);
+        udf_trace("map block %u to lba %u\n", file_block + i, lba);
+
+        if (!lba) {
+            /* unallocated/unwritten block or EOF */
+            uint32_t file_blocks = (fe->length + UDF_BLOCK_SIZE - 1) / UDF_BLOCK_SIZE;
+            if (file_block + i < file_blocks) {
+                udf_trace("zero-fill unallocated / unwritten block %u\n", file_block + i);
+                memset(block, 0, UDF_BLOCK_SIZE);
+                i++;
+                continue;
+            }
+            udf_error("block %u outside of file (size %u blocks)\n", file_block + i, file_blocks);
+            break;
+        }
+
+        if (extent_length > num_blocks - i) {
+            extent_length = num_blocks - i;
+        }
+
+        got = fs->input->read(fs->input, lba, block, extent_length, flags);
+        if (got < 1) {
+            break;
+        }
+        i += (uint32_t)got;
+    }
+    return i;
+}
+
 /*
  * Directory
  */
