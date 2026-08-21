@@ -229,23 +229,28 @@ int udfread_select_partition (udfread *udf, int partition)
 
 static struct udf_dir *_cache_subdir(udfread *udf, struct udf_dir *dir, uint32_t index)
 {
+    struct udf_dir *subdir, **subdirs;
+
     if (!(dir->entries.files[index].characteristic & CHAR_FLAG_DIR)) {
         return NULL;
     }
 
-    if (!dir->subdirs) {
-        struct udf_dir **subdirs = (struct udf_dir **)calloc(dir->entries.num_entries, sizeof(struct udf_dir *));
+    subdirs = atomic_load_acquire(&dir->subdirs);
+    if (!subdirs) {
+        subdirs = (struct udf_dir **)calloc(dir->entries.num_entries, sizeof(struct udf_dir *));
         if (!subdirs) {
             udf_error("out of memory\n");
             return NULL;
         }
         if (!atomic_pointer_compare_and_exchange(&dir->subdirs, NULL, subdirs)) {
             free(subdirs);
+            subdirs = atomic_load_acquire(&dir->subdirs);
         }
     }
 
-    if (!dir->subdirs[index]) {
-        struct udf_dir *subdir = (struct udf_dir *)calloc(1, sizeof(struct udf_dir));
+    subdir = atomic_load_acquire(&subdirs[index]);
+    if (!subdir) {
+        subdir = (struct udf_dir *)calloc(1, sizeof(struct udf_dir));
         if (!subdir) {
             udf_error("out of memory\n");
             return NULL;
@@ -255,13 +260,14 @@ static struct udf_dir *_cache_subdir(udfread *udf, struct udf_dir *dir, uint32_t
             free(subdir);
             return NULL;
         }
-        if (!atomic_pointer_compare_and_exchange(&dir->subdirs[index], NULL, subdir)) {
+        if (!atomic_pointer_compare_and_exchange(&subdirs[index], NULL, subdir)) {
             udf_clean_dir_entries(&subdir->entries);
             free(subdir);
+            subdir = atomic_load_acquire(&subdirs[index]);
         }
     }
 
-    return dir->subdirs[index];
+    return subdir;
 }
 
 static int _scan_dir(const struct udf_dir_entries *dir, const char *filename, uint32_t *index)
