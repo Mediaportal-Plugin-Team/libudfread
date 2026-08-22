@@ -141,11 +141,11 @@ void decode_logical_volume(const uint8_t *p, struct logical_volume_descriptor *l
 
     memcpy(lvd->contents_use, p + 248, 16);
 
-    lvd->partition_map_lable_length = _get_u32(p + 264);
+    lvd->partition_map_table_length = _get_u32(p + 264);
     lvd->num_partition_maps         = _get_u32(p + 268);
 
     /* XXX cut long maps */
-    map_size = lvd->partition_map_lable_length;
+    map_size = lvd->partition_map_table_length;
     if (map_size > sizeof(lvd->partition_map_table)) {
         map_size = sizeof(lvd->partition_map_table);
     }

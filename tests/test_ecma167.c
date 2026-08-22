@@ -136,7 +136,7 @@ static void test_partition_lvd(void)
     CHECK(memcmp(lvd.domain_id.identifier, "ABCDEF", 6) == 0);
     CHECK(memcmp(lvd.domain_id.identifier_suffix, buf + 240, 8) == 0);
     CHECK(memcmp(lvd.contents_use, "CONTENTS_USE", 12) == 0);
-    CHECK_EQ_UINT(3000, lvd.partition_map_lable_length);
+    CHECK_EQ_UINT(3000, lvd.partition_map_table_length);
     CHECK_EQ_UINT(2, lvd.num_partition_maps);
     CHECK(memcmp(lvd.partition_map_table, buf + 440, 1608) == 0);
     CHECK_EQ_UINT(0xff, lvd.partition_map_table[1608]);

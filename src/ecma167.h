@@ -158,7 +158,7 @@ struct logical_volume_descriptor {
     uint8_t          contents_use[16];
 
     uint32_t num_partition_maps;
-    uint32_t partition_map_lable_length;
+    uint32_t partition_map_table_length;
     uint8_t  partition_map_table[2048];
 };
 

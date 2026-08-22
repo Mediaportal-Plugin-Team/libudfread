@@ -384,7 +384,7 @@ static void test_parse_partition_maps(void)
     vds.pd.number = 0;
     vds.pd.start_block = 100;
     vds.lvd.num_partition_maps = 1;
-    vds.lvd.partition_map_lable_length = 6;
+    vds.lvd.partition_map_table_length = 6;
     vds.lvd.partition_map_table[0] = 1;
     vds.lvd.partition_map_table[1] = 6;
     set_u16(vds.lvd.partition_map_table + 4, 0);
@@ -401,7 +401,7 @@ static void test_parse_partition_maps(void)
     vds.pd.number = 0;
     vds.pd.start_block = 100;
     vds.lvd.num_partition_maps = 1;
-    vds.lvd.partition_map_lable_length = 6;
+    vds.lvd.partition_map_table_length = 6;
     vds.lvd.partition_map_table[0] = 1;
     vds.lvd.partition_map_table[1] = 6;
     set_u16(vds.lvd.partition_map_table + 4, 1);
@@ -415,7 +415,7 @@ static void test_parse_partition_maps(void)
     vds.pd.number = 0;
     vds.pd.start_block = 100;
     vds.lvd.num_partition_maps = 2;
-    vds.lvd.partition_map_lable_length = 12;
+    vds.lvd.partition_map_table_length = 12;
     vds.lvd.partition_map_table[0] = 1;
     vds.lvd.partition_map_table[1] = 6;
     set_u16(vds.lvd.partition_map_table + 4, 0);
@@ -432,7 +432,7 @@ static void test_parse_partition_maps(void)
     memset(&vds, 0, sizeof(vds));
     vds.pd.number = 0;
     vds.lvd.num_partition_maps = 1;
-    vds.lvd.partition_map_lable_length = 6;
+    vds.lvd.partition_map_table_length = 6;
     vds.lvd.partition_map_table[0] = 1;
     vds.lvd.partition_map_table[1] = 5;
     memset(&part, 0, sizeof(part));
@@ -444,7 +444,7 @@ static void test_parse_partition_maps(void)
     memset(&vds, 0, sizeof(vds));
     vds.pd.number = 0;
     vds.lvd.num_partition_maps = 1;
-    vds.lvd.partition_map_lable_length = 6;
+    vds.lvd.partition_map_table_length = 6;
     vds.lvd.partition_map_table[0] = 1;
     vds.lvd.partition_map_table[1] = 1;
     memset(&part, 0, sizeof(part));
@@ -456,7 +456,7 @@ static void test_parse_partition_maps(void)
     memset(&vds, 0, sizeof(vds));
     vds.pd.number = 0;
     vds.lvd.num_partition_maps = 1;
-    vds.lvd.partition_map_lable_length = 5;
+    vds.lvd.partition_map_table_length = 5;
     vds.lvd.partition_map_table[0] = 1;
     vds.lvd.partition_map_table[1] = 6;
     memset(&part, 0, sizeof(part));
@@ -469,7 +469,7 @@ static void test_parse_partition_maps(void)
     vds.pd.number = 0;
     vds.pd.start_block = 100;
     vds.lvd.num_partition_maps = 1;
-    vds.lvd.partition_map_lable_length = 3000;
+    vds.lvd.partition_map_table_length = 3000;
     vds.lvd.partition_map_table[0] = 1;
     vds.lvd.partition_map_table[1] = 6;
     set_u16(vds.lvd.partition_map_table + 4, 0);
@@ -487,7 +487,7 @@ static void vds_meta_init(struct volume_descriptor_set *vds, uint16_t ref,
     vds->pd.number = 0;
     vds->pd.start_block = 100;
     vds->lvd.num_partition_maps = 2;
-    vds->lvd.partition_map_lable_length = 70;
+    vds->lvd.partition_map_table_length = 70;
     /* type 1 map */
     vds->lvd.partition_map_table[0] = 1;
     vds->lvd.partition_map_table[1] = 6;
@@ -632,7 +632,7 @@ static void test_parse_partition_maps_metadata(void)
     memset(image, 0, sizeof(image));
     vds_meta_init(&vds, 0, 5, 6);
     vds.lvd.num_partition_maps = 1;
-    vds.lvd.partition_map_lable_length = 63;
+    vds.lvd.partition_map_table_length = 63;
     vds.lvd.partition_map_table[0] = 2;
     vds.lvd.partition_map_table[1] = 63;
     mock_init(&m, image, IMG_BLOCKS);

@@ -393,14 +393,14 @@ int udf_parse_partition_maps(ecma_ctx *ecma, udfread_block_input *input,
      */
 
     const uint8_t *map = vds->lvd.partition_map_table;
-    const uint8_t *end = map + vds->lvd.partition_map_lable_length;
+    const uint8_t *end = map + vds->lvd.partition_map_table_length;
     unsigned int   i;
     int            num_type1_partition = 0;
 
     udf_log("Partition map count: %u\n", vds->lvd.num_partition_maps);
-    if (vds->lvd.partition_map_lable_length > sizeof(vds->lvd.partition_map_table)) {
+    if (vds->lvd.partition_map_table_length > sizeof(vds->lvd.partition_map_table)) {
         udf_error("partition map table too big !\n");
-        end -= vds->lvd.partition_map_lable_length - sizeof(vds->lvd.partition_map_table);
+        end -= vds->lvd.partition_map_table_length - sizeof(vds->lvd.partition_map_table);
     }
 
     for (i = 0; i < vds->lvd.num_partition_maps && map + 2 < end; i++) {
