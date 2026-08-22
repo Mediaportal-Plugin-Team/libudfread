@@ -111,6 +111,8 @@ struct udfread {
     char volume_set_identifier[128];
 
     int partition_to_open;
+
+    FILE *log_file;  /* possible log file from UDFREAD_LOG_FILE env var */
 };
 
 udfread *udfread_init(void)
@@ -134,6 +136,16 @@ udfread *udfread_init(void)
     }
     udf->lc_storage.ctx    = stderr;
     udf->lc_storage.logger = (udf_logger)fprintf;
+    udf->log_file          = NULL;
+
+    if (getenv("UDFREAD_LOG_FILE")) {
+        FILE *f = fopen(getenv("UDFREAD_LOG_FILE"), "w");
+        if (f) {
+            setvbuf(f, NULL, _IOLBF, 0);  /* line buffering */
+            udf->lc_storage.ctx = f;
+            udf->log_file = f;  /* so that it can be closed */
+        }
+    }
     udf->fs.ecma.lc = &udf->lc_storage;
 
 #ifdef HAVE_UDFREAD_VERSION_H
@@ -434,6 +446,9 @@ void udfread_close(udfread *udf)
 
         _clean_tree(&udf->root_dir);
         free(udf->volume_identifier);
+        if (udf->log_file) {
+            fclose(udf->log_file);
+        }
         free(udf);
     }
 }
