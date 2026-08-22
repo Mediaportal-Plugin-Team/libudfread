@@ -38,6 +38,10 @@
 #define udf_log(...)     udf_log_msg(ecma->lc, UDFREAD_LOG_INFO,  "udfread LOG  : ", __VA_ARGS__)
 #define udf_trace(...)   udf_log_msg(ecma->lc, UDFREAD_LOG_TRACE, "udfread TRACE: ", __VA_ARGS__)
 
+/* Safety limits for VDS parsing (prevent infinite loops on corrupted media) */
+#define UDF_MAX_VDP_COUNT    100    /* max Volume Descriptor Pointers in chain */
+#define UDF_MAX_VDS_BLOCKS   10000  /* max blocks in a Volume Descriptor Sequence */
+
 /* Additional File Types (UDF 2.60, 2.3.5.2) */
 enum udf_file_type {
     UDF_FT_METADATA        = 250,
@@ -179,6 +183,8 @@ static unsigned _search_vds(ecma_ctx *ecma, udfread_block_input *input,
     int      tag_id;
     uint32_t lba;
     uint32_t end_lba;
+    unsigned vdp_count = 0;
+    unsigned block_count = 0;
 
 next_extent:
     udf_trace("reading Volume Descriptor Sequence at lba %u, len %u bytes\n", loc->lba, loc->length);
@@ -188,6 +194,11 @@ next_extent:
     /* parse Volume Descriptor Sequence */
     for (lba = loc->lba; lba < end_lba; lba++) {
 
+        if (++block_count > UDF_MAX_VDS_BLOCKS) {
+            udf_error("too many blocks in Volume Descriptor Sequence (possible corruption)\n");
+            return found_mask;
+        }
+
         tag_id = _read_descriptor_block(input, lba, buf);
 
         switch (tag_id) {
@@ -195,6 +206,10 @@ next_extent:
         case ECMA_VolumeDescriptorPointer:
             decode_vdp(buf, &vdp);
             loc = &vdp.next_extent;
+            if (++vdp_count > UDF_MAX_VDP_COUNT) {
+                udf_error("too many Volume Descriptor Pointers (possible loop)\n");
+                return found_mask;
+            }
             goto next_extent;
 
         case ECMA_PrimaryVolumeDescriptor:
