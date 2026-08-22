@@ -343,6 +343,7 @@ int decode_allocation_extent(ecma_ctx *ctx, struct file_entry **p_fe, const uint
 {
     struct file_entry *fe = *p_fe;
     uint32_t l_ad, num_ad;
+    uint64_t total_ads;
 
     l_ad = _get_u32(p + 20);
     if (size < 24 || size - 24 < l_ad) {
@@ -363,7 +364,15 @@ int decode_allocation_extent(ecma_ctx *ctx, struct file_entry **p_fe, const uint
         return 0;
     }
 
-    fe = (struct file_entry *)realloc(*p_fe, sizeof(struct file_entry) + sizeof(struct long_ad) * (fe->u.ads.num_ad + num_ad));
+    /* check for integer overflow */
+    total_ads = (uint64_t)fe->u.ads.num_ad + (uint64_t)num_ad;
+    if (total_ads >= (uint64_t)1<<32 ||
+        total_ads > (SIZE_MAX - sizeof(struct file_entry)) / sizeof(struct long_ad)) {
+        ecma_error("decode_allocation_extent: too many allocation descriptors\n");
+        return -1;
+    }
+
+    fe = (struct file_entry *)realloc(*p_fe, sizeof(struct file_entry) + sizeof(struct long_ad) * (size_t)total_ads);
     if (!fe) {
         return -1;
     }

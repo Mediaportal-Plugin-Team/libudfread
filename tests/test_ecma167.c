@@ -428,6 +428,13 @@ static void test_allocation_extent(void)
     CHECK_EQ_UINT(900, fe->u.ads.ad[1].lba);
     CHECK_EQ_UINT(5, fe->u.ads.ad[1].partition);
 
+    /* num_ad overflow guard */
+    fe->ad_type = 0;
+    fe->u.ads.num_ad = 0xffffffff;
+    set_u32(buf + 20, 8);
+    CHECK_EQ_INT(-1, decode_allocation_extent(&ctx, &fe, buf, (size_t)32, (uint16_t)7));
+    CHECK_EQ_UINT(0xffffffff, fe->u.ads.num_ad);
+
     free_file_entry(&fe);
 }
 
