@@ -263,15 +263,21 @@ int udf_find_root_dir(struct udf_fs *fs, const struct long_ad *fsd_loc,
                       struct file_set_descriptor *fsd)
 {
     uint8_t             buf[UDF_BLOCK_SIZE];
-    int                 tag_id = -1;
+    int                 tag_id;
     struct long_ad      loc = *fsd_loc;
+    uint32_t            num_blocks;
 
     udf_trace("reading root directory fsd from part %u lba %u\n", fsd_loc->partition, fsd_loc->lba);
+
+    /* extent length can be invalid metadata. The pointer always targets the FSD itself:
+     * scan the described extent, but always probe at least one block. */
+
+    num_blocks = fsd_loc->length ? (fsd_loc->length - 1) / UDF_BLOCK_SIZE + 1 : 1;
 
     /* search for File Set Descriptor from the area described by fsd_loc */
 
     loc.length = UDF_BLOCK_SIZE;
-    for (; loc.lba <= fsd_loc->lba + (fsd_loc->length - 1) / UDF_BLOCK_SIZE; loc.lba++) {
+    for (; num_blocks > 0; num_blocks--, loc.lba++) {
 
         tag_id = _read_metadata_blocks(fs, buf, &loc);
         if (tag_id == ECMA_FileSetDescriptor) {
