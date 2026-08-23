@@ -64,9 +64,9 @@ extern "C" {
 /**
  *  Get library version
  *
- * @param major  receives library version major number
- * @param minor  receives library version minor number
- * @param micro  receives library version micro number
+ * @param major  receives library version major number.  Optional, may be NULL.
+ * @param minor  receives library version minor number.  Optional, may be NULL.
+ * @param micro  receives library version micro number.  Optional, may be NULL.
  */
 UDF_PUBLIC void udfread_get_version(int *major, int *minor, int *micro);
 

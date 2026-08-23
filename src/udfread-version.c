@@ -30,8 +30,14 @@
  */
 void udfread_get_version(int *major, int *minor, int *micro)
 {
-    *major = UDFREAD_VERSION_MAJOR;
-    *minor = UDFREAD_VERSION_MINOR;
-    *micro = UDFREAD_VERSION_MICRO;
+    if (major) {
+        *major = UDFREAD_VERSION_MAJOR;
+    }
+    if (minor) {
+        *minor = UDFREAD_VERSION_MINOR;
+    }
+    if (micro) {
+        *micro = UDFREAD_VERSION_MICRO;
+    }
 }
 
