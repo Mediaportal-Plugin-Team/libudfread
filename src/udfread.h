@@ -174,10 +174,18 @@ UDF_PUBLIC const char *udfread_get_volume_id (udfread *p);
 /**
  *  Get UDF Volume Set Identifier
  *
+ *  The Volume Set Identifier is a fixed length field in the Primary
+ *  Volume Descriptor.  It is not a string: it may contain arbitrary
+ *  bytes and is not NUL terminated.
+ *
+ *  At most 'size' bytes are written to buffer.
+ *
  * @param p  udfread object
  * @param buffer buffer to receive volume set id
  * @param size buffer size
- * @return Volume set id size, 0 if error
+ * @return size of the Volume Set Identifier, 0 if error.
+ *         If the returned value is larger than 'size', the value was
+ *         truncated to 'size' bytes.
  */
 UDF_PUBLIC size_t udfread_get_volume_set_id (udfread *p, void *buffer, size_t size);
 
