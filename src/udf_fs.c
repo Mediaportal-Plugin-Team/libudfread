@@ -96,6 +96,12 @@ char *udf_cs0_to_mutf8(const uint8_t *cs0, size_t size)
         return calloc(1, 1);
     }
 
+    if (cs0[0] == 254 || cs0[0] == 255) {
+        /* UDF 2.1.1: compression IDs 254 and 255 mark the name
+         * as empty and unique */
+        return calloc(1, 1);
+    }
+
     out = (uint8_t *)malloc(size);
     if (!out) {
         return NULL;
