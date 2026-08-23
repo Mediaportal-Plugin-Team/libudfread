@@ -333,6 +333,10 @@ struct file_entry *udf_read_file_entry(struct udf_fs *fs, const struct long_ad *
 
     /* read possible additional allocation extents */
     if (fe && !fe->content_inline) {
+        uint32_t *visited   = NULL;
+        unsigned  n_visited = 0;
+        int       cycle     = 0;
+
         while (fe->u.ads.num_ad > 0 &&
                fe->u.ads.ad[fe->u.ads.num_ad - 1].extent_type == ECMA_AD_EXTENT_AD) {
 
@@ -341,6 +345,27 @@ struct file_entry *udf_read_file_entry(struct udf_fs *fs, const struct long_ad *
 
             icb = &fe->u.ads.ad[fe->u.ads.num_ad];
             udf_log("_read_file_entry: reading allocation extent @%u\n", icb->lba);
+
+            /* cycle protection: never follow the same allocation extent twice */
+            {
+                unsigned i;
+                for (i = 0; i < n_visited; i++) {
+                    if (visited[i] == icb->lba) {
+                        udf_error("_read_file_entry: detected allocation extent chain loop @%u\n", icb->lba);
+                        cycle = 1;
+                        break;
+                    }
+                }
+                if (cycle) {
+                    break;
+                }
+                visited = (uint32_t *)_safe_realloc(visited, (n_visited + 1) * sizeof(*visited));
+                if (!visited) {
+                    udf_error("out of memory\n");
+                    break;
+                }
+                visited[n_visited++] = icb->lba;
+            }
 
             buf = _read_metadata(fs, icb, &tag_id);
             if (!buf) {
@@ -364,6 +389,13 @@ struct file_entry *udf_read_file_entry(struct udf_fs *fs, const struct long_ad *
                (extent ad is left in file ad list). */
 
             free(buf);
+        }
+
+        free(visited);
+
+        if (cycle) {
+            free_file_entry(&fe);
+            return NULL;
         }
     }
 
