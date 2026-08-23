@@ -231,6 +231,11 @@ UDF_PUBLIC UDFDIR *udfread_opendir_at(UDFDIR *dir, const char *name);
  *  Read a directory entry from directory stream. Return a pointer to
  *  udfread_dirent struct describing the entry, or NULL for EOF or error.
  *
+ *  Note: an entry can also be a symbolic link (UDF file type 12).
+ *  Symbolic links are not resolved here: the Directory characteristic of
+ *  a symbolic link FID is always 0 (ECMA-167 4/14.4.3 note 20), so symlink
+ *  entries are reported as UDF_DT_REG regardless of their target type.
+ *
  * @param p  directory stream
  * @param entry  storage space for directory entry
  * @return next directory stream entry, or NULL if EOF or error.
