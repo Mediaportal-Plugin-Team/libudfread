@@ -491,7 +491,9 @@ int udf_read_dir(struct udf_fs *fs, const struct long_ad *icb,
         }
 
     } else if (fe->u.ads.num_ad == 0) {
-        udf_error("empty directory file");
+        /* ECMA-167 4/8.6 allows a directory with zero entries. Treat a
+         * missing extent as an empty directory, not as an error. */
+        result = 0;
 
     } else {
         if (fe->u.ads.num_ad > 1) {
