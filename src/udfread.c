@@ -92,6 +92,7 @@ static uint32_t _read_blocks(udfread_block_input *input,
 struct udf_dir {
     struct udf_dir_entries       entries;
     struct udf_dir             **subdirs;
+    struct long_ad                icb;  /* for stat */
 };
 
 static void _clean_tree(struct udf_dir *p)
@@ -613,6 +614,14 @@ static UDFFILE *_file_open(udfread *udf, const char *path, const struct udf_file
     fe = udf_read_file_entry(&udf->fs, &fi->icb);
     if (!fe) {
         udf_error("error reading file entry for %s\n", path);
+        return NULL;
+    }
+
+    if (fe->file_type == ECMA_FT_SYMLINK) {
+        /* UDF 2.60 4.2.1.1: open on a symbolic link shall access the target.
+         * Targets are not resolved; do not serve raw link content. */
+        udf_error("error opening file %s (symbolic link)\n", path);
+        free_file_entry(&fe);
         return NULL;
     }
 
