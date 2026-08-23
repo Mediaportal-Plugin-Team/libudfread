@@ -409,6 +409,10 @@ static int _parse_dir_file(struct udf_fs *fs, const uint8_t *data, uint32_t leng
         if (fid.characteristic & CHAR_FLAG_PARENT) {
             continue;
         }
+        if (fid.characteristic & CHAR_FLAG_DELETED) {
+            /* UDF 2.3.4.2.1: readers shall skip deleted entries */
+            continue;
+        }
         if (fid.filename_len < 1) {
             continue;
         }
