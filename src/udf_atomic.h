@@ -26,25 +26,9 @@
 
 #elif defined(_WIN32)
 
-#include <windows.h>
-
-static int atomic_pointer_compare_and_exchange(void *atomic, void *oldval, void *newval)
-{
-    static int init = 0;
-    static CRITICAL_SECTION cs = {0};
-    if (!init) {
-        init = 1;
-        InitializeCriticalSection(&cs);
-    }
-    int result;
-    EnterCriticalSection(&cs);
-    result = *(void**)atomic == oldval;
-    if (result) {
-        *(void**)atomic = newval;
-    }
-    LeaveCriticalSection(&cs);
-    return result;
-}
+#  include <windows.h>
+#  define atomic_pointer_compare_and_exchange(atomic, oldval, newval) \
+    (InterlockedCompareExchangePointer((PVOID volatile *)(atomic), (newval), (oldval)) == (oldval))
 
 #elif defined(HAVE_PTHREAD_H)
 
