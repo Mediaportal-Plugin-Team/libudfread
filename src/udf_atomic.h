@@ -23,27 +23,49 @@
 
 #  define atomic_pointer_compare_and_exchange(atomic, oldval, newval) \
     __sync_bool_compare_and_swap((atomic), (oldval), (newval))
+#  define atomic_load_acquire(atomic) \
+    __sync_fetch_and_add((atomic), 0)
 
 #elif defined(_WIN32)
 
 #  include <windows.h>
 #  define atomic_pointer_compare_and_exchange(atomic, oldval, newval) \
     (InterlockedCompareExchangePointer((PVOID volatile *)(atomic), (newval), (oldval)) == (oldval))
+#  define atomic_load_acquire(atomic) \
+    InterlockedCompareExchangePointer((PVOID volatile *)(atomic), NULL, NULL)
 
 #elif defined(HAVE_PTHREAD_H)
 
 #include <pthread.h>
 
+static void _udf_atomic_guard(int lock)
+{
+    static pthread_mutex_t atomic_lock = PTHREAD_MUTEX_INITIALIZER;
+    if (lock) {
+        pthread_mutex_lock(&atomic_lock);
+    } else {
+        pthread_mutex_unlock(&atomic_lock);
+    }
+}
+
 static int atomic_pointer_compare_and_exchange(void *atomic, void *oldval, void *newval)
 {
-    static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
     int result;
-    pthread_mutex_lock(&lock);
+    _udf_atomic_guard(1);
     result = *(void**)atomic == oldval;
     if (result) {
         *(void**)atomic = newval;
     }
-    pthread_mutex_unlock(&lock);
+    _udf_atomic_guard(0);
+    return result;
+}
+
+static inline void *atomic_load_acquire(void *atomic)
+{
+    void *result;
+    _udf_atomic_guard(1);
+    result = *(void**)atomic;
+    _udf_atomic_guard(0);
     return result;
 }
 
