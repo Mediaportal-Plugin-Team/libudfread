@@ -37,8 +37,33 @@ static void test_tag(void)
     buf[7] = (uint8_t)(buf[7] ^ 0xff);
     CHECK_EQ_INT(ECMA_TAG_INVALID, (int)decode_descriptor_tag(buf));
 
-    /* all-zero block: valid checksum, unknown id */
+    /* descriptor version: only 2 and 3 are allowed (ECMA-167 3/7.2.2) */
+    set_tag(buf, 1);
+    set_u16(buf + 2, 2);
+    set_tag_checksum(buf);
+    CHECK_EQ_INT(1, (int)decode_descriptor_tag(buf));
+
+    set_tag(buf, 1);
+    set_u16(buf + 2, 0);
+    set_tag_checksum(buf);
+    CHECK_EQ_INT(ECMA_TAG_INVALID, (int)decode_descriptor_tag(buf));
+
+    set_tag(buf, 1);
+    set_u16(buf + 2, 1);
+    set_tag_checksum(buf);
+    CHECK_EQ_INT(ECMA_TAG_INVALID, (int)decode_descriptor_tag(buf));
+
+    set_tag(buf, 1);
+    set_u16(buf + 2, 4);
+    set_tag_checksum(buf);
+    CHECK_EQ_INT(ECMA_TAG_INVALID, (int)decode_descriptor_tag(buf));
+
+    /* all-zero block: valid checksum, but descriptor version 0 */
     memset(buf, 0, 16);
+    CHECK_EQ_INT(ECMA_TAG_INVALID, (int)decode_descriptor_tag(buf));
+
+    /* id 0 with a valid version passes through */
+    set_tag(buf, 0);
     CHECK_EQ_INT(0, (int)decode_descriptor_tag(buf));
 }
 

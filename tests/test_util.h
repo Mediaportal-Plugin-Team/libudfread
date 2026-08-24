@@ -69,7 +69,7 @@ static inline void set_u16(uint8_t *p, uint32_t v) { p[0] = (uint8_t)v; p[1] = (
 static inline void set_u32(uint8_t *p, uint32_t v) { set_u16(p, v); set_u16(p + 2, v >> 16); }
 static inline void set_u64(uint8_t *p, uint64_t v) { set_u32(p, (uint32_t)v); set_u32(p + 4, (uint32_t)(v >> 32)); }
 
-/* write a 16-byte descriptor tag with valid checksum */
+/* write a 16-byte descriptor tag with valid checksum and version number */
 static inline void set_tag(uint8_t *p, uint16_t id)
 {
     int i;
@@ -77,6 +77,23 @@ static inline void set_tag(uint8_t *p, uint16_t id)
 
     memset(p, 0, 16);
     set_u16(p, id);
+    set_u16(p + 2, 3);   /* descriptor version number */
+    for (i = 0; i < 4; i++) {
+        sum = (uint8_t)(sum + p[i]);
+    }
+    for (i = 5; i < 16; i++) {
+        sum = (uint8_t)(sum + p[i]);
+    }
+
+    p[4] = sum;
+}
+
+/* recompute tag checksum after editing fields inside bytes 0..15 */
+static inline void set_tag_checksum(uint8_t *p)
+{
+    int i;
+    uint8_t sum = 0;
+
     for (i = 0; i < 4; i++) {
         sum = (uint8_t)(sum + p[i]);
     }
@@ -107,3 +124,4 @@ static inline void set_tag(uint8_t *p, uint16_t id)
     }
 
 #endif /* TEST_UTIL_H_ */
+

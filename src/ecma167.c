@@ -76,12 +76,19 @@ void decode_entity_id(const uint8_t *p, struct entity_id *eid)
 enum tag_identifier decode_descriptor_tag(const uint8_t *buf)
 {
   uint16_t id;
+  uint32_t version;
   uint8_t  checksum = 0;
   int      i;
 
   id = _get_u16(buf + 0);
 
   /* descriptor tag is 16 bytes */
+
+  /* descriptor version number shall be 2 or 3 (ECMA 167, 3/7.2.2) */
+  version = _get_u16(buf + 2);
+  if (version < 2 || version > 3) {
+      return ECMA_TAG_INVALID;
+  }
 
   /* calculate tag checksum */
   for (i = 0; i < 4; i++) {
