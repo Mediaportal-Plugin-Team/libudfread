@@ -72,13 +72,39 @@ void decode_entity_id(const uint8_t *p, struct entity_id *eid)
  * Part 3: Volume Structure
  */
 
+/* CRC-ITU-T (ECMA 167, 3/7.2.6): polynomial x^16+x^12+x^5+1, initial value 0 */
+static uint16_t _crc_itut(const uint8_t *p, size_t len)
+{
+    uint16_t crc = 0;
+
+    while (len--) {
+        unsigned int bit;
+
+        crc ^= (uint16_t)(*p++ << 8);
+        for (bit = 0; bit < 8; bit++) {
+            if (crc & 0x8000) {
+                crc = (uint16_t)((crc << 1) ^ 0x1021);
+            } else {
+                crc = (uint16_t)(crc << 1);
+            }
+        }
+    }
+
+    return crc;
+}
+
 /* Descriptor Tag (ECMA 167, 3/7.2) */
-enum tag_identifier decode_descriptor_tag(const uint8_t *buf)
+enum tag_identifier decode_descriptor_tag(const uint8_t *buf, size_t size)
 {
   uint16_t id;
   uint32_t version;
+  uint32_t crc_len;
   uint8_t  checksum = 0;
   int      i;
+
+  if (size < 16) {
+      return ECMA_TAG_INVALID;
+  }
 
   id = _get_u16(buf + 0);
 
@@ -100,6 +126,16 @@ enum tag_identifier decode_descriptor_tag(const uint8_t *buf)
 
   if (checksum != buf[4]) {
       return ECMA_TAG_INVALID;
+  }
+
+  /* descriptor CRC covers bytes following the tag (ECMA 167, 3/7.2.5..7).
+   * length 0 => no CRC recorded */
+  crc_len = _get_u16(buf + 10);
+  if (crc_len) {
+      if ((size_t)16 + crc_len > size ||
+          _crc_itut(buf + 16, crc_len) != _get_u16(buf + 8)) {
+          return ECMA_TAG_INVALID;
+      }
   }
 
   return (enum tag_identifier)id;

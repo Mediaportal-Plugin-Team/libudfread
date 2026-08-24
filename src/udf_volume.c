@@ -118,7 +118,7 @@ int udf_probe_volume(ecma_ctx *ecma, udfread_block_input *input)
 static int _read_descriptor_block(udfread_block_input *input, uint32_t lba, uint8_t *buf)
 {
     if (input->read(input, lba, buf, 1, 0) == 1) {
-        return decode_descriptor_tag(buf);
+        return decode_descriptor_tag(buf, UDF_BLOCK_SIZE);
     }
 
     return -1;

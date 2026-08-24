@@ -24,47 +24,77 @@ static void test_tag(void)
 
     for (i = 0; i < sizeof(ids) / sizeof(ids[0]); i++) {
         set_tag(buf, ids[i]);
-        CHECK_EQ_INT((int)ids[i], (int)decode_descriptor_tag(buf));
+        CHECK_EQ_INT((int)ids[i], (int)decode_descriptor_tag(buf, sizeof(buf)));
     }
+
+    /* unknown id passes through when the checksum is valid */
+    set_tag(buf, 9);
+    CHECK_EQ_INT(9, (int)decode_descriptor_tag(buf, sizeof(buf)));
 
     /* corrupted checksum byte */
     set_tag(buf, 1);
     buf[4] = (uint8_t)(buf[4] ^ 0xff);
-    CHECK_EQ_INT(ECMA_TAG_INVALID, (int)decode_descriptor_tag(buf));
+    CHECK_EQ_INT(ECMA_TAG_INVALID, (int)decode_descriptor_tag(buf, sizeof(buf)));
 
     /* flipped byte in tag body */
     set_tag(buf, 1);
     buf[7] = (uint8_t)(buf[7] ^ 0xff);
-    CHECK_EQ_INT(ECMA_TAG_INVALID, (int)decode_descriptor_tag(buf));
+    CHECK_EQ_INT(ECMA_TAG_INVALID, (int)decode_descriptor_tag(buf, sizeof(buf)));
 
     /* descriptor version: only 2 and 3 are allowed (ECMA-167 3/7.2.2) */
     set_tag(buf, 1);
     set_u16(buf + 2, 2);
     set_tag_checksum(buf);
-    CHECK_EQ_INT(1, (int)decode_descriptor_tag(buf));
+    CHECK_EQ_INT(1, (int)decode_descriptor_tag(buf, sizeof(buf)));
 
     set_tag(buf, 1);
     set_u16(buf + 2, 0);
     set_tag_checksum(buf);
-    CHECK_EQ_INT(ECMA_TAG_INVALID, (int)decode_descriptor_tag(buf));
+    CHECK_EQ_INT(ECMA_TAG_INVALID, (int)decode_descriptor_tag(buf, sizeof(buf)));
 
     set_tag(buf, 1);
     set_u16(buf + 2, 1);
     set_tag_checksum(buf);
-    CHECK_EQ_INT(ECMA_TAG_INVALID, (int)decode_descriptor_tag(buf));
+    CHECK_EQ_INT(ECMA_TAG_INVALID, (int)decode_descriptor_tag(buf, sizeof(buf)));
 
     set_tag(buf, 1);
     set_u16(buf + 2, 4);
     set_tag_checksum(buf);
-    CHECK_EQ_INT(ECMA_TAG_INVALID, (int)decode_descriptor_tag(buf));
+    CHECK_EQ_INT(ECMA_TAG_INVALID, (int)decode_descriptor_tag(buf, sizeof(buf)));
+
+    /* descriptor CRC (ECMA-167 3/7.2.3): known vector */
+    CHECK_EQ_UINT(0x31c3, _crc_itut((const uint8_t *)"123456789", (size_t)9));
+
+    /* valid CRC */
+    set_tag(buf, 1);
+    memcpy(buf + 16, "abcd", 4);
+    set_u16(buf + 10, 4);
+    set_u16(buf + 8, _crc_itut(buf + 16, (size_t)4));
+    set_tag_checksum(buf);
+    CHECK_EQ_INT(1, (int)decode_descriptor_tag(buf, sizeof(buf)));
+
+    /* flipped byte inside the CRC range -> invalid */
+    buf[17] = (uint8_t)(buf[17] ^ 0xff);
+    CHECK_EQ_INT(ECMA_TAG_INVALID, (int)decode_descriptor_tag(buf, sizeof(buf)));
+
+    /* CRC range beyond the buffer -> invalid */
+    set_u16(buf + 10, 2048);
+    set_tag_checksum(buf);
+    CHECK_EQ_INT(ECMA_TAG_INVALID, (int)decode_descriptor_tag(buf, sizeof(buf)));
+    CHECK_EQ_INT(ECMA_TAG_INVALID, (int)decode_descriptor_tag(buf, (size_t)20));
+
+    /* crc length 0: CRC not verified */
+    set_tag(buf, 1);
+    memcpy(buf + 16, "\xaa\xbb\xcc\xdd", 4);
+    CHECK_EQ_INT(1, (int)decode_descriptor_tag(buf, sizeof(buf)));
 
     /* all-zero block: valid checksum, but descriptor version 0 */
     memset(buf, 0, 16);
-    CHECK_EQ_INT(ECMA_TAG_INVALID, (int)decode_descriptor_tag(buf));
+    CHECK_EQ_INT(ECMA_TAG_INVALID, (int)decode_descriptor_tag(buf, sizeof(buf)));
 
     /* id 0 with a valid version passes through */
     set_tag(buf, 0);
-    CHECK_EQ_INT(0, (int)decode_descriptor_tag(buf));
+    CHECK_EQ_INT(0, (int)decode_descriptor_tag(buf, sizeof(buf)));
 }
 
 static void test_entity_id(void)

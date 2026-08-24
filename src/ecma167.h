@@ -111,7 +111,7 @@ enum tag_identifier {
     ECMA_TAG_INVALID                          = -1,  /* checksum failed */
 };
 
-enum tag_identifier decode_descriptor_tag(const uint8_t *buf);
+enum tag_identifier decode_descriptor_tag(const uint8_t *buf, size_t size);
 
 /* Primary Volume Descriptor (ECMA 167, 3/10.1) */
 
