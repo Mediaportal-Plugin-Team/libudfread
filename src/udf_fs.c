@@ -436,6 +436,11 @@ uint32_t udf_file_lba(struct udf_fs *fs, const struct file_entry *fe, uint32_t f
             if (extent_length) {
                 *extent_length = ad_size - file_block;
             }
+
+            if ((uint64_t)fs->part.p[0].lba + ad[i].lba + file_block > (uint64_t)UINT32_MAX) {
+                udf_error("file extent outside media\n");
+                return 0;
+            }
             return fs->part.p[0].lba + ad[i].lba + file_block;
         }
 
