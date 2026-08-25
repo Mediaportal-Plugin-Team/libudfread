@@ -27,6 +27,7 @@
 #include "blockinput.h"
 
 #include <errno.h>
+#include <limits.h>
 #include <stdlib.h>
 #ifdef HAVE_UNISTD_H
 #include <unistd.h>
@@ -152,6 +153,16 @@ static int _def_read(udfread_block_input *p_gen, uint32_t lba, void *buf, uint32
     off_t  pos;
 
     (void)flags;
+
+    /* result is int, and the byte count must fit size_t (32-bit arch) */
+#if (SIZE_MAX/UDF_BLOCK_SIZE) < INT_MAX
+    if ((uint64_t)nblocks > SIZE_MAX / UDF_BLOCK_SIZE) {
+        nblocks = (uint32_t)(SIZE_MAX / UDF_BLOCK_SIZE);
+    }
+#endif
+    if (nblocks > (uint32_t)INT_MAX) {
+        nblocks = INT_MAX;
+    }
 
     bytes = (size_t)nblocks * UDF_BLOCK_SIZE;
     got   = 0;
