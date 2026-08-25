@@ -186,6 +186,11 @@ static int _read_metadata_blocks(struct udf_fs *fs, uint8_t *buf, const struct l
         return -1;
     }
 
+    if (fs->part.p[part_idx].length && loc->lba >= fs->part.p[part_idx].length) {
+        udf_error("metadata block outside partition %u\n", loc->partition);
+        return -1;
+    }
+
     /* read first block. Parse and check tag. */
 
     lba    = fs->part.p[part_idx].lba + loc->lba;
@@ -210,18 +215,23 @@ static int _read_metadata_blocks(struct udf_fs *fs, uint8_t *buf, const struct l
 
     for (i = 1; i <= (loc->length - 1) / UDF_BLOCK_SIZE; i++) {
 
+        if (fs->part.p[part_idx].length && (uint64_t)loc->lba + i >= fs->part.p[part_idx].length) {
+            udf_error("metadata extent outside partition %u\n", loc->partition);
+            return -1;
+        }
+
         lba  = fs->part.p[part_idx].lba + loc->lba + i;
         buf += UDF_BLOCK_SIZE;
 
         got = fs->input->read(fs->input, lba, buf, 1, 0);
         if (got != 1) {
             if (fs->part.p[part_idx].mirror_lba) {
-                udf_log("read metadata from lba %u failed, trying mirror\n", lba);
+                udf_log("no valid metadata block at lba %u, trying mirror\n", lba);
                 lba = fs->part.p[part_idx].mirror_lba + loc->lba + i;
                 got = fs->input->read(fs->input, lba, buf, 1, 0);
             }
             if (got != 1) {
-                udf_error("read metadata from lba %u failed\n", lba);
+                udf_error("no valid metadata block at lba %u\n", lba);
                 return -1;
             }
         }
@@ -263,7 +273,8 @@ int udf_find_root_dir(struct udf_fs *fs, const struct long_ad *fsd_loc,
                       struct file_set_descriptor *fsd)
 {
     uint8_t             buf[UDF_BLOCK_SIZE];
-    int                 tag_id;
+    int                 tag_id = -1;
+    int                 part_idx;
     struct long_ad      loc = *fsd_loc;
     uint32_t            num_blocks;
 
@@ -273,6 +284,24 @@ int udf_find_root_dir(struct udf_fs *fs, const struct long_ad *fsd_loc,
      * scan the described extent, but always probe at least one block. */
 
     num_blocks = fsd_loc->length ? (fsd_loc->length - 1) / UDF_BLOCK_SIZE + 1 : 1;
+
+    /* limit scan to partition area (if partition size is known) */
+    part_idx = _partition_index(&fs->part, fsd_loc->partition);
+    if (part_idx < 0) {
+        udf_error("unknown partition %u\n", fsd_loc->partition);
+        return -1;
+    }
+
+    if (fs->part.p[part_idx].length) {
+        if (fsd_loc->lba >= fs->part.p[part_idx].length) {
+            udf_error("File Set Descriptor outside partition\n");
+            return -1;
+        }
+        if (num_blocks > fs->part.p[part_idx].length - fsd_loc->lba) {
+            udf_error("File Set Descriptor partially outside partition\n");
+            num_blocks = fs->part.p[part_idx].length - fsd_loc->lba;
+        }
+    }
 
     /* search for File Set Descriptor from the area described by fsd_loc */
 
