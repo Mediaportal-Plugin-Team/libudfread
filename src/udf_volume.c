@@ -323,6 +323,17 @@ int udf_validate_logical_volume(ecma_ctx *ecma, const struct logical_volume_desc
  * Partitions
  */
 
+/* Interim support level: only the first allocation extent of the metadata
+ * files is mapped (full extent-list support: METADATA-PARTITION.md). */
+static void _check_metadata_fragmentation(ecma_ctx *ecma,
+                                          const struct file_entry *fe, unsigned int idx)
+{
+    if (fe->length > fe->u.ads.ad[0].length) {
+        udf_error("unsupported: metadata file %u spans multiple allocation "
+                  "extents, mapping only the first extent\n", idx);
+    }
+}
+
 static int _map_metadata_partition(udfread_block_input *input,
                                    ecma_ctx *ecma,
                                    struct udf_partitions *part,
@@ -362,9 +373,11 @@ static int _map_metadata_partition(udfread_block_input *input,
             udf_error("invalid metadata file (no allocation descriptors)\n");
         } else if (fe->file_type == UDF_FT_METADATA) {
             part->p[1].lba = pd->start_block + fe->u.ads.ad[0].lba;
+            _check_metadata_fragmentation(ecma, fe, i);
             udf_log("metadata file at lba %u\n", part->p[1].lba);
         } else if (fe->file_type == UDF_FT_METADATA_MIRROR) {
             part->p[1].mirror_lba = pd->start_block + fe->u.ads.ad[0].lba;
+            _check_metadata_fragmentation(ecma, fe, i);
             udf_log("metadata mirror file at lba %u\n", part->p[1].mirror_lba);
         } else {
             udf_error("unknown metadata file type %u\n", fe->file_type);
