@@ -143,7 +143,13 @@ static uint32_t _def_size(udfread_block_input *p_gen)
         return 0;
     }
 
-    return (uint32_t)(pos / UDF_BLOCK_SIZE);
+    pos /= UDF_BLOCK_SIZE;
+    if (pos > (off_t)UINT32_MAX) {
+        /* lba is 32-bit: nothing beyond this can ever be read */
+        return UINT32_MAX;
+    }
+
+    return (uint32_t)pos;
 }
 
 static int _def_read(udfread_block_input *p_gen, uint32_t lba, void *buf, uint32_t nblocks, int flags)
