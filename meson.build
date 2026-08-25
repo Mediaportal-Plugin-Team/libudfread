@@ -37,6 +37,9 @@ optional_arguments = []
 
 if host_machine.system() != 'windows'
     test_args += '-D_POSIX_C_SOURCE=200809L'
+    # AC_SYS_LARGEFILE equivalent: 64-bit off_t on 32-bit archs,
+    # needed for lseek/pread beyond 2GB
+    test_args += '-D_FILE_OFFSET_BITS=64'
 elif cc.get_argument_syntax() == 'msvc'
     test_args += ['-D_CRT_SECURE_NO_WARNINGS', '-D_CRT_NONSTDC_NO_WARNINGS']
 endif
