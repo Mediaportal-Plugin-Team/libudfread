@@ -344,6 +344,7 @@ static int _map_metadata_partition(udfread_block_input *input,
     uint8_t       buf[UDF_BLOCK_SIZE];
     int           tag_id;
     unsigned int  i;
+    uint32_t      ext_len[2] = { 0, 0 };  /* first extent size, blocks */
 
     /* resolve metadata partition location (it is virtual partition inside another partition) */
     udf_trace("Reading metadata file entry: lba %u, mirror lba %u\n", lba, mirror_lba);
@@ -373,10 +374,12 @@ static int _map_metadata_partition(udfread_block_input *input,
             udf_error("invalid metadata file (no allocation descriptors)\n");
         } else if (fe->file_type == UDF_FT_METADATA) {
             part->p[1].lba = pd->start_block + fe->u.ads.ad[0].lba;
+            ext_len[0]     = fe->u.ads.ad[0].length / UDF_BLOCK_SIZE;
             _check_metadata_fragmentation(ecma, fe, i);
             udf_log("metadata file at lba %u\n", part->p[1].lba);
         } else if (fe->file_type == UDF_FT_METADATA_MIRROR) {
             part->p[1].mirror_lba = pd->start_block + fe->u.ads.ad[0].lba;
+            ext_len[1]            = fe->u.ads.ad[0].length / UDF_BLOCK_SIZE;
             _check_metadata_fragmentation(ecma, fe, i);
             udf_log("metadata mirror file at lba %u\n", part->p[1].mirror_lba);
         } else {
@@ -390,6 +393,14 @@ static int _map_metadata_partition(udfread_block_input *input,
         /* failed reading primary location, must use mirror */
         part->p[1].lba        = part->p[1].mirror_lba;
         part->p[1].mirror_lba = 0;
+    }
+
+    /* virtual partition size: first extent only; smaller of the two files
+     * when both are known (contents must be identical) */
+    if (ext_len[0] && ext_len[1]) {
+        part->p[1].length = ext_len[0] < ext_len[1] ? ext_len[0] : ext_len[1];
+    } else {
+        part->p[1].length = ext_len[0] + ext_len[1];
     }
 
     return part->p[1].lba ? 0 : -1;
@@ -455,6 +466,7 @@ int udf_parse_partition_maps(ecma_ctx *ecma, udfread_block_input *input,
                 part->p[0].number     = i;
                 part->p[0].lba        = vds->pd.start_block;
                 part->p[0].mirror_lba = 0; /* no mirror for data partition */
+                part->p[0].length     = vds->pd.num_blocks;
 
                 num_type1_partition++;
             }

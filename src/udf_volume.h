@@ -61,6 +61,7 @@ struct udf_partitions {
         uint16_t number;
         uint32_t lba;
         uint32_t mirror_lba;
+        uint32_t length;      /* partition size in blocks, 0 = unknown */
     } p[2];
 };
 
