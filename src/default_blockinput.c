@@ -59,6 +59,12 @@ typedef SSIZE_T ssize_t;
 # define off_t off64_t
 #endif
 
+#if !defined(_WIN32)
+/* media offsets are computed in off_t: a 32-bit off_t caps usable media
+ * at 2GB. Build with -D_FILE_OFFSET_BITS=64 (meson does). */
+typedef char udfread_off_t_is_64bit[sizeof(off_t) >= 8 ? 1 : -1];
+#endif
+
 #ifdef _WIN32
 static ssize_t pread(int fd, void *buf, size_t count, off_t offset)
 {
