@@ -227,6 +227,14 @@ size_t decode_file_identifier(ecma_ctx *ctx, const uint8_t *p, size_t size, stru
 
     l_iu = _get_u16(p + 36);
 
+#if defined(ECMA_CONFORMANCE) && ECMA_CONFORMANCE > 0
+    /* L_IU shall be recorded as a multiple of 4 (ECMA 167, 4/14.4.2) */
+    if (l_iu & 3) {
+        ecma_error("decode_file_identifier: invalid l_iu %d\n", l_iu);
+        return 0;
+    }
+#endif
+
     if (size < 38 + l_iu + fi->filename_len) {
         ecma_error("decode_file_identifier: not enough data\n");
         return 0;
