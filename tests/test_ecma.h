@@ -45,6 +45,12 @@ static inline void make_vds_block(uint8_t *b, uint16_t tag_id)
     set_tag(b, tag_id);
 }
 
+static inline void make_vds_block_seq(uint8_t *b, uint16_t tag_id, uint32_t seq)
+{
+    make_vds_block(b, tag_id);
+    set_u32(b + 16, seq);
+}
+
 static inline void make_avdp(uint8_t *b, uint32_t mvds_lba, uint32_t mvds_len,
                              uint32_t rvds_lba, uint32_t rvds_len)
 {

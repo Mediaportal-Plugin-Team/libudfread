@@ -17,6 +17,11 @@
 #include "../src/ecma167.c"
 #include "../src/udf_volume.c"
 
+#ifdef __GNUC__
+/* test headers use lot of 'static inline'. non-optimized build trigers inline limit warnings. */
+#pragma GCC diagnostic ignored "-Winline"
+#endif
+
 #define IMG_BLOCKS 512
 static uint8_t image[IMG_BLOCKS * UDF_BLOCK_SIZE];
 
@@ -126,7 +131,7 @@ static void test_read_vds(void)
     ecma_ctx ctx;
     struct mock_input m;
     struct volume_descriptor_set vds;
-    static const uint32_t trap[] = { 256, 257, 258, 259 };
+    static const uint32_t trap[] = { 256, 257, 258, 259, 260 };
 
     log_init(&cap, &log, &ctx);
 
@@ -135,14 +140,14 @@ static void test_read_vds(void)
     make_avdp(img_block(256), 257, 4 * UDF_BLOCK_SIZE, 300, 4 * UDF_BLOCK_SIZE);
     make_vds_sequence(257, 0);
     mock_init(&m, image, IMG_BLOCKS);
-    mock_expect(&m, trap, 4);
+    mock_expect(&m, trap, 5);
 
     CHECK_EQ_INT(0, udf_read_vds(&ctx, &m.bi, 0, &vds));
     CHECK_EQ_UINT(0, vds.pd.number);
     CHECK_EQ_UINT(100, vds.pd.start_block);
     CHECK_EQ_UINT(2048, vds.lvd.block_size);
     CHECK_EQ_UINT(0, vds.pvd.volume_identifier_length);
-    CHECK_EQ_UINT(4, m.read_calls);
+    CHECK_EQ_UINT(5, m.read_calls);
     CHECK(strstr(cap.buf, "Found Anchor Volume Descriptor Pointer from lba 256") != NULL);
 }
 
@@ -153,11 +158,11 @@ static void test_read_vds_avdp_locations(void)
     ecma_ctx ctx;
     struct mock_input m;
     struct volume_descriptor_set vds;
-    static const uint32_t trap_last[] = { 256, 299, 100, 101, 102 };
-    static const uint32_t trap_last256[] = { 256, 299, 43, 100, 101, 102 };
+    static const uint32_t trap_last[] = { 256, 299, 100, 101, 102, 103 };
+    static const uint32_t trap_last256[] = { 256, 299, 43, 100, 101, 102, 103 };
     static const uint32_t trap_none[] = { 256, 299, 43 };
     static const uint32_t trap_256[] = { 256 };
-    static const uint32_t trap_256ok[] = { 256, 257, 258, 259 };
+    static const uint32_t trap_256ok[] = { 256, 257, 258, 259, 260 };
 
     log_init(&cap, &log, &ctx);
 
@@ -167,7 +172,7 @@ static void test_read_vds_avdp_locations(void)
     make_avdp(img_block(299), 100, 3 * UDF_BLOCK_SIZE, 200, 4 * UDF_BLOCK_SIZE);
     make_vds_sequence(100, 0);
     mock_init(&m, image, 300);
-    mock_expect(&m, trap_last, 5);
+    mock_expect(&m, trap_last, 6);
     CHECK_EQ_INT(0, udf_read_vds(&ctx, &m.bi, 0, &vds));
     CHECK_EQ_UINT(2048, vds.lvd.block_size);
 
@@ -177,7 +182,7 @@ static void test_read_vds_avdp_locations(void)
     make_avdp(img_block(43), 100, 3 * UDF_BLOCK_SIZE, 200, 4 * UDF_BLOCK_SIZE);
     make_vds_sequence(100, 0);
     mock_init(&m, image, 300);
-    mock_expect(&m, trap_last256, 6);
+    mock_expect(&m, trap_last256, 7);
     CHECK_EQ_INT(0, udf_read_vds(&ctx, &m.bi, 0, &vds));
 
     /* no AVDP */
@@ -204,7 +209,7 @@ static void test_read_vds_avdp_locations(void)
     make_vds_sequence(257, 0);
     mock_init(&m, image, IMG_BLOCKS);
     m.bi.size = NULL;
-    mock_expect(&m, trap_256ok, 4);
+    mock_expect(&m, trap_256ok, 5);
     CHECK_EQ_INT(0, udf_read_vds(&ctx, &m.bi, 0, &vds));
 }
 
@@ -215,7 +220,7 @@ static void test_read_vds_fallback(void)
     ecma_ctx ctx;
     struct mock_input m;
     struct volume_descriptor_set vds;
-    static const uint32_t trap_ok[] = { 256, 257, 258, 259, 300, 301, 302 };
+    static const uint32_t trap_ok[] = { 256, 257, 258, 259, 300, 301, 302, 303 };
     static const uint32_t trap_fail[] = { 256, 257, 300 };
 
     log_init(&cap, &log, &ctx);
@@ -229,7 +234,7 @@ static void test_read_vds_fallback(void)
     make_vds_block(img_block(259), ECMA_TerminatingDescriptor);
     make_vds_sequence(300, 0);
     mock_init(&m, image, IMG_BLOCKS);
-    mock_expect(&m, trap_ok, 7);
+    mock_expect(&m, trap_ok, 8);
     CHECK_EQ_INT(0, udf_read_vds(&ctx, &m.bi, 0, &vds));
     CHECK_EQ_UINT(2048, vds.lvd.block_size);   /* LVD came from RVDS */
 
@@ -252,7 +257,7 @@ static void test_read_vds_vdp(void)
     ecma_ctx ctx;
     struct mock_input m;
     struct volume_descriptor_set vds;
-    static const uint32_t trap[] = { 256, 257, 300, 301, 302 };
+    static const uint32_t trap[] = { 256, 257, 258, 300, 301, 302, 303 };
 
     log_init(&cap, &log, &ctx);
 
@@ -263,11 +268,11 @@ static void test_read_vds_vdp(void)
     make_vds_block(img_block(258), ECMA_TerminatingDescriptor);
     make_vds_sequence(300, 0);
     mock_init(&m, image, IMG_BLOCKS);
-    mock_expect(&m, trap, 5);
+    mock_expect(&m, trap, 7);
 
     CHECK_EQ_INT(0, udf_read_vds(&ctx, &m.bi, 0, &vds));
     CHECK_EQ_UINT(2048, vds.lvd.block_size);
-    CHECK_EQ_UINT(6, m.read_calls);
+    CHECK_EQ_UINT(7, m.read_calls);
 }
 
 static void test_read_vds_part_number(void)
@@ -277,8 +282,8 @@ static void test_read_vds_part_number(void)
     ecma_ctx ctx;
     struct mock_input m;
     struct volume_descriptor_set vds;
-    static const uint32_t trap_5[] = { 256, 257, 258, 259, 260 };
-    static const uint32_t trap_first[] = { 256, 257, 258, 259, 260 };
+    static const uint32_t trap_5[] = { 256, 257, 258, 259, 260, 261 };
+    static const uint32_t trap_first[] = { 256, 257, 258, 259, 260, 261 };
     static const uint32_t trap_last[] = { 256, 257, 258, 259, 260, 261 };
 
     log_init(&cap, &log, &ctx);
@@ -294,24 +299,78 @@ static void test_read_vds_part_number(void)
 
     /* specific partition number */
     mock_init(&m, image, IMG_BLOCKS);
-    mock_expect(&m, trap_5, 5);
+    mock_expect(&m, trap_5, 6);
     CHECK_EQ_INT(0, udf_read_vds(&ctx, &m.bi, 5, &vds));
     CHECK_EQ_UINT(5, vds.pd.number);
 
     /* first partition */
     log_init(&cap, &log, &ctx);
     mock_init(&m, image, IMG_BLOCKS);
-    mock_expect(&m, trap_first, 5);
+    mock_expect(&m, trap_first, 6);
     CHECK_EQ_INT(0, udf_read_vds(&ctx, &m.bi, UDFREAD_PARTITION_FIRST, &vds));
     CHECK_EQ_UINT(7, vds.pd.number);
 
-    /* last partition: no early exit, reads to the terminator */
+    /* last partition: last PD wins */
     log_init(&cap, &log, &ctx);
     mock_init(&m, image, IMG_BLOCKS);
     mock_expect(&m, trap_last, 6);
     CHECK_EQ_INT(0, udf_read_vds(&ctx, &m.bi, UDFREAD_PARTITION_LAST, &vds));
     CHECK_EQ_UINT(5, vds.pd.number);
     CHECK_EQ_UINT(6, m.read_calls);
+}
+
+static void test_read_vds_seq(void)
+{
+    struct capture_log cap;
+    udf_log log;
+    ecma_ctx ctx;
+    struct mock_input m;
+    struct volume_descriptor_set vds;
+    static const uint32_t trap[] = { 256, 257, 258, 259, 260, 261, 262, 263 };
+    static const uint32_t trap_fb[] = { 256, 257, 258, 259, 260, 261, 262 };
+
+    log_init(&cap, &log, &ctx);
+
+    /* two instances: seq 1 (partition 7) and seq 2 (partition 5);
+     * the highest sequence number prevails (ECMA 167 3/8.4.3) */
+    log_init(&cap, &log, &ctx);
+    memset(image, 0, sizeof(image));
+    make_avdp(img_block(256), 257, 7 * UDF_BLOCK_SIZE, 300, 4 * UDF_BLOCK_SIZE);
+    make_vds_block_seq(img_block(257), ECMA_PrimaryVolumeDescriptor, 1);
+    make_partition_block(img_block(258), 7, 100, 1000);
+    set_u32(img_block(258) + 16, 1);
+    make_lvd_block(img_block(259), UDF_BLOCK_SIZE);
+    set_u32(img_block(259) + 16, 1);
+    make_vds_block_seq(img_block(260), ECMA_PrimaryVolumeDescriptor, 2);
+    make_partition_block(img_block(261), 5, 100, 1000);
+    set_u32(img_block(261) + 16, 2);
+    make_lvd_block(img_block(262), UDF_BLOCK_SIZE);
+    set_u32(img_block(262) + 16, 2);
+    make_vds_block(img_block(263), ECMA_TerminatingDescriptor);
+    mock_init(&m, image, IMG_BLOCKS);
+    mock_expect(&m, trap, 8);
+    CHECK_EQ_INT(0, udf_read_vds(&ctx, &m.bi, UDFREAD_PARTITION_FIRST, &vds));
+    CHECK_EQ_UINT(5, vds.pd.number);
+    CHECK_EQ_UINT(8, m.read_calls);
+
+    /* trailing instance incomplete (no LVD): previous complete wins */
+    log_init(&cap, &log, &ctx);
+    memset(image, 0, sizeof(image));
+    make_avdp(img_block(256), 257, 6 * UDF_BLOCK_SIZE, 300, 4 * UDF_BLOCK_SIZE);
+    make_vds_block_seq(img_block(257), ECMA_PrimaryVolumeDescriptor, 1);
+    make_partition_block(img_block(258), 7, 100, 1000);
+    set_u32(img_block(258) + 16, 1);
+    make_lvd_block(img_block(259), UDF_BLOCK_SIZE);
+    set_u32(img_block(259) + 16, 1);
+    make_vds_block_seq(img_block(260), ECMA_PrimaryVolumeDescriptor, 2);
+    make_partition_block(img_block(261), 5, 100, 1000);
+    set_u32(img_block(261) + 16, 2);
+    make_vds_block(img_block(262), ECMA_TerminatingDescriptor);
+    mock_init(&m, image, IMG_BLOCKS);
+    mock_expect(&m, trap_fb, 7);
+    CHECK_EQ_INT(0, udf_read_vds(&ctx, &m.bi, UDFREAD_PARTITION_FIRST, &vds));
+    CHECK_EQ_UINT(7, vds.pd.number);
+    CHECK(strstr(cap.buf, "discarding incomplete Volume Descriptor Sequence instance (seq 2)") != NULL);
 }
 
 static void test_validate_logical_volume(void)
@@ -649,6 +708,7 @@ RUN_TESTS(
     TEST_ENTRY(test_read_vds_fallback),
     TEST_ENTRY(test_read_vds_vdp),
     TEST_ENTRY(test_read_vds_part_number),
+    TEST_ENTRY(test_read_vds_seq),
     TEST_ENTRY(test_validate_logical_volume),
     TEST_ENTRY(test_parse_partition_maps),
     TEST_ENTRY(test_parse_partition_maps_metadata),

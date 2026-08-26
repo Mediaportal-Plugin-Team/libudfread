@@ -172,19 +172,90 @@ static int _read_avdp(ecma_ctx *ecma, udfread_block_input *input,
 #define VDS_HAVE_LVD      (1<<2)
 #define VDS_HAVE_REQUIRED (VDS_HAVE_PART | VDS_HAVE_PVD)
 #define VDS_HAVE_ALL      (VDS_HAVE_PART | VDS_HAVE_PVD | VDS_HAVE_LVD)
-/* return value: VDS_HAVE_* mask */
-static unsigned _search_vds(ecma_ctx *ecma, udfread_block_input *input,
-                            int part_number, const struct extent_ad *loc,
-                            struct volume_descriptor_set *vds,
-                            unsigned found_mask /* already found descriptors */)
+/* Volume Descriptor Sequence Number (ECMA 167 3/7.2.2, descriptor tag @16) */
+static uint32_t _descriptor_seq(const uint8_t *buf)
+{
+    return _get_u32(buf + 16);
+}
+
+/*
+ * Candidate tracking for the Volume Descriptor Sequence search.
+ *
+ * Complete descriptor set instances (partition + PVD + LVD) compete by
+ * Volume Descriptor Sequence Number (ECMA 167 3/8.4.3).
+ * Instances carrying only the required descriptors (partition + PVD) are kept as a fallback.
+ * Anything else is merged per descriptor class as a last resort.
+ */
+struct vds_scan {
+    struct volume_descriptor_set all;       /* highest-seq complete instance */
+    uint32_t all_seq;
+    int      have_all;
+
+    struct volume_descriptor_set required;  /* highest-seq PART|PVD-only instance */
+    uint32_t required_seq;
+    int      have_required;
+
+    struct volume_descriptor_set partial;   /* per-class merge of leftovers */
+    unsigned partial_mask;
+};
+
+/* flush a finished instance into the candidate tiers */
+static void _vds_flush_instance(ecma_ctx *ecma, struct vds_scan *scan,
+                                const struct volume_descriptor_set *cand,
+                                unsigned cand_mask, uint32_t cand_seq)
+{
+    if (cand_mask == VDS_HAVE_ALL) {
+        if (!scan->have_all || cand_seq > scan->all_seq) {
+            scan->all      = *cand;
+            scan->all_seq  = cand_seq;
+            scan->have_all = 1;
+        }
+        return;
+    }
+
+    if ((cand_mask & VDS_HAVE_REQUIRED) == VDS_HAVE_REQUIRED) {
+        udf_trace("discarding incomplete Volume Descriptor Sequence instance (seq %u)\n", cand_seq);
+        if (!scan->have_required || cand_seq > scan->required_seq) {
+            scan->required      = *cand;
+            scan->required_seq  = cand_seq;
+            scan->have_required = 1;
+        }
+        return;
+    }
+
+    if (cand_mask) {
+        udf_trace("discarding incomplete Volume Descriptor Sequence instance (seq %u)\n", cand_seq);
+        if (cand_mask & VDS_HAVE_PVD) {
+            scan->partial.pvd = cand->pvd;
+        }
+        if (cand_mask & VDS_HAVE_PART) {
+            scan->partial.pd = cand->pd;
+        }
+        if (cand_mask & VDS_HAVE_LVD) {
+            scan->partial.lvd = cand->lvd;
+        }
+        scan->partial_mask |= cand_mask;
+    }
+}
+
+/* scan one Volume Descriptor Sequence extent chain.
+ * results accumulate in the candidate tracker */
+static void _search_vds(ecma_ctx *ecma, udfread_block_input *input,
+                        int part_number, const struct extent_ad *loc,
+                        struct vds_scan *scan)
 {
     struct volume_descriptor_pointer vdp;
+    struct volume_descriptor_set cand;
     uint8_t  buf[UDF_BLOCK_SIZE];
+    unsigned cand_mask = 0;
+    uint32_t cand_seq = 0;
     int      tag_id;
     uint32_t lba;
     uint32_t end_lba;
     unsigned vdp_count = 0;
     unsigned block_count = 0;
+
+    memset(&cand, 0, sizeof(cand));
 
 next_extent:
     udf_trace("reading Volume Descriptor Sequence at lba %u, len %u bytes\n", loc->lba, loc->length);
@@ -196,7 +267,7 @@ next_extent:
 
         if (++block_count > UDF_MAX_VDS_BLOCKS) {
             udf_error("too many blocks in Volume Descriptor Sequence (possible corruption)\n");
-            return found_mask;
+            goto done;
         }
 
         tag_id = _read_descriptor_block(input, lba, buf);
@@ -208,48 +279,63 @@ next_extent:
             loc = &vdp.next_extent;
             if (++vdp_count > UDF_MAX_VDP_COUNT) {
                 udf_error("too many Volume Descriptor Pointers (possible loop)\n");
-                return found_mask;
+                goto done;
             }
             goto next_extent;
 
+        case ECMA_TerminatingDescriptor:
+            udf_trace("Terminating Descriptor in lba %u\n", lba);
+            goto done;
+
+        case ECMA_PrimaryVolumeDescriptor:
+        case ECMA_PartitionDescriptor:
+        case ECMA_LogicalVolumeDescriptor:
+            break;
+
+        default:
+            /* unknown tag or read error: skip block */
+            continue;
+        }
+
+        /* a new Volume Descriptor Sequence Number starts a new instance
+         * of the descriptor set */
+        if (_descriptor_seq(buf) != cand_seq) {
+            _vds_flush_instance(ecma, scan, &cand, cand_mask, cand_seq);
+            cand_seq = _descriptor_seq(buf);
+            cand_mask = 0;
+            memset(&cand, 0, sizeof(cand));
+        }
+
+        switch (tag_id) {
+
         case ECMA_PrimaryVolumeDescriptor:
             udf_log("Primary Volume Descriptor in lba %u\n", lba);
-            decode_primary_volume(buf, &vds->pvd);
-            found_mask |= VDS_HAVE_PVD;
+            decode_primary_volume(buf, &cand.pvd);
+            cand_mask |= VDS_HAVE_PVD;
             break;
 
         case ECMA_LogicalVolumeDescriptor:
             udf_log("Logical volume descriptor in lba %u\n", lba);
-            decode_logical_volume(buf, &vds->lvd);
-            found_mask |= VDS_HAVE_LVD;
+            decode_logical_volume(buf, &cand.lvd);
+            cand_mask |= VDS_HAVE_LVD;
             break;
 
         case ECMA_PartitionDescriptor:
           udf_log("Partition Descriptor in lba %u\n", lba);
-          if (!(found_mask & VDS_HAVE_PART) ||
+          if (!(cand_mask & VDS_HAVE_PART) ||
               part_number == UDFREAD_PARTITION_LAST) {
-
-              decode_partition(buf, &vds->pd);
-              if (part_number < 0 || part_number == vds->pd.number) {
-                  found_mask |= VDS_HAVE_PART;
+              decode_partition(buf, &cand.pd);
+              if (part_number < 0 || part_number == cand.pd.number) {
+                  cand_mask |= VDS_HAVE_PART;
               }
-              udf_log("  partition %u at lba %u, %u blocks\n", vds->pd.number, vds->pd.start_block, vds->pd.num_blocks);
+              udf_log("  partition %u at lba %u, %u blocks\n", cand.pd.number, cand.pd.start_block, cand.pd.num_blocks);
           }
           break;
-
-        case ECMA_TerminatingDescriptor:
-            udf_trace("Terminating Descriptor in lba %u\n", lba);
-            return found_mask;
-        }
-
-        if ((found_mask & VDS_HAVE_ALL) == VDS_HAVE_ALL &&
-            part_number != UDFREAD_PARTITION_LAST) {
-            /* got everything interesting, skip rest blocks */
-            return found_mask;
         }
     }
 
-    return found_mask;
+done:
+    _vds_flush_instance(ecma, scan, &cand, cand_mask, cand_seq);
 }
 
 int udf_read_vds(ecma_ctx *ecma, udfread_block_input *input,
@@ -257,7 +343,7 @@ int udf_read_vds(ecma_ctx *ecma, udfread_block_input *input,
                  struct volume_descriptor_set *vds)
 {
     struct anchor_volume_descriptor avdp;
-    unsigned found_mask;
+    struct vds_scan scan;
 
     /* Find Anchor Volume Descriptor */
     if (_read_avdp(ecma, input, &avdp) < 0) {
@@ -265,11 +351,13 @@ int udf_read_vds(ecma_ctx *ecma, udfread_block_input *input,
     }
 
     memset(vds, 0, sizeof(*vds));
+    memset(&scan, 0, sizeof(scan));
 
     /* try to read Main Volume Descriptor Sequence */
-    found_mask = _search_vds(ecma, input, part_number, &avdp.mvds, vds, 0);
-    if ((found_mask & VDS_HAVE_ALL) == VDS_HAVE_ALL) {
+    _search_vds(ecma, input, part_number, &avdp.mvds, &scan);
+    if (scan.have_all) {
         /* all data found */
+        *vds = scan.all;
         return 0;
     }
 
@@ -279,9 +367,25 @@ int udf_read_vds(ecma_ctx *ecma, udfread_block_input *input,
      */
 
     /* try to read Backup Volume Descriptor */
-    found_mask = _search_vds(ecma, input, part_number, &avdp.rvds, vds, found_mask);
-    if ((found_mask & VDS_HAVE_REQUIRED) == VDS_HAVE_REQUIRED) {
-        /* all strictly needed data found (PVD may still be missing) */
+    _search_vds(ecma, input, part_number, &avdp.rvds, &scan);
+
+    if (scan.have_all) {
+        *vds = scan.all;
+        return 0;
+    }
+
+    if (scan.have_required) {
+        /* all strictly needed data found (LVD missing) */
+        udf_log("using Volume Descriptor Sequence without Logical Volume Descriptor (seq %u)\n",
+                scan.required_seq);
+        *vds = scan.required;
+        return 0;
+    }
+
+    /* last resort: merge partial descriptors from different sequences */
+    if ((scan.partial_mask & VDS_HAVE_REQUIRED) == VDS_HAVE_REQUIRED) {
+        udf_log("merging partial Volume Descriptor Sequences\n");
+        *vds = scan.partial;
         return 0;
     }
 
