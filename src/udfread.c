@@ -802,7 +802,7 @@ ssize_t udfread_file_read(UDFFILE *p, void *buf, size_t bytes)
     if (!p || !buf) {
         return -1;
     }
-    if ((ssize_t)bytes < 0 || (int64_t)bytes < 0) {
+    if ((ssize_t)bytes < 0) {
         return -1;
     }
 
