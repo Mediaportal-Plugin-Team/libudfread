@@ -17,7 +17,7 @@ shift || true
 [ -n "$builddir" ] || { echo "usage: $0 <builddir> [test ...]" >&2; exit 2; }
 
 if [ $# -eq 0 ]; then
-    set -- test_ecma167 test_udf_volume
+    set -- test_ecma167 test_udf_volume test_udf_fs test_udfread
 fi
 
 for testname in "$@"; do

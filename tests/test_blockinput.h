@@ -78,7 +78,9 @@ static void mock_init(struct mock_input *m, uint8_t *image, uint32_t nblocks)
 }
 
 /* declare the set of LBAs the test expects to be read; any other read
- * fails the test. Pass count 0 to forbid all reads. */
+ * fails the test. Pass count 0 to forbid all reads.
+ * The list is an allow-list, not a consumption list: reads of listed
+ * LBAs may repeat any number of times. */
 static void mock_expect(struct mock_input *m, const uint32_t *lbas, uint32_t count)
 {
     m->expect_enabled = 1;
@@ -87,3 +89,4 @@ static void mock_expect(struct mock_input *m, const uint32_t *lbas, uint32_t cou
 }
 
 #endif /* TEST_BLOCKINPUT_H_ */
+

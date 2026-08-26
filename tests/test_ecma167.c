@@ -11,6 +11,8 @@
  * Must NOT be linked against libudfread (duplicate decode_* symbols).
  */
 
+#define ECMA_CONFORMANCE 1
+
 #include "test_ecma.h"
 
 #include "../src/ecma167.c"
@@ -286,15 +288,20 @@ static void test_file_identifier(void)
     CHECK_EQ_UINT(55, fi.icb.lba);
     CHECK_EQ_UINT(1, fi.icb.partition);
 
-    /* with implementation use field */
-    set_u16(buf + 36, 5);
-    memcpy(buf + 43, "abc", 3);
+    /* with implementation use field (l_iu must be a multiple of 4) */
+    set_u16(buf + 36, 4);
+    memcpy(buf + 42, "abc", 3);
     r = decode_file_identifier(&ctx, buf, (size_t)46, &fi);
     CHECK_EQ_UINT(48, r);
     CHECK(memcmp(fi.filename, "abc", 3) == 0);
 
     /* truncated */
-    r = decode_file_identifier(&ctx, buf, (size_t)45, &fi);
+    r = decode_file_identifier(&ctx, buf, (size_t)44, &fi);
+    CHECK_EQ_UINT(0, r);
+
+    /* l_iu not a multiple of 4 */
+    set_u16(buf + 36, 3);
+    r = decode_file_identifier(&ctx, buf, (size_t)46, &fi);
     CHECK_EQ_UINT(0, r);
 }
 
@@ -328,6 +335,30 @@ static void test_file_entry(void)
     CHECK_EQ_UINT(200, fe->u.ads.ad[1].lba);
     free_file_entry(&fe);
     CHECK(fe == NULL);
+
+    /* extended attribute area shifts the ad start (l_ea honored) */
+    set_u32(buf + 168, 16);    /* l_ea */
+    set_u32(buf + 172, 8);     /* l_ad: 1 short ad */
+    set_u32(buf + 192, 0x40000000 | 30);
+    set_u32(buf + 196, 300);
+    fe = decode_file_entry(&ctx, buf, sizeof(buf), (uint16_t)7);
+    CHECK_NOT_NULL(fe);
+    CHECK_EQ_UINT(1, fe->u.ads.num_ad);
+    CHECK_EQ_UINT(30, fe->u.ads.ad[0].length);
+    CHECK_EQ_UINT(300, fe->u.ads.ad[0].lba);
+    free_file_entry(&fe);
+    set_u32(buf + 168, 0);     /* reset l_ea */
+
+    /* extent type 3 (next extent of ADs) is kept raw in the ad list */
+    set_u32(buf + 172, 8);
+    set_u32(buf + 176, 0xc0000000 | 10);
+    set_u32(buf + 180, 100);
+    fe = decode_file_entry(&ctx, buf, sizeof(buf), (uint16_t)7);
+    CHECK_NOT_NULL(fe);
+    CHECK_EQ_UINT(1, fe->u.ads.num_ad);
+    CHECK_EQ_UINT(3, fe->u.ads.ad[0].extent_type);
+    CHECK_EQ_UINT(10, fe->u.ads.ad[0].length);
+    free_file_entry(&fe);
 
     /* long ads */
     set_u16(buf + 16 + 18, 1);
@@ -369,6 +400,11 @@ static void test_file_entry(void)
     CHECK_EQ_UINT(4, fe->u.data.information_length);
     CHECK(memcmp(fe->u.data.content, "abcd", 4) == 0);
     free_file_entry(&fe);
+
+    /* inline content larger than the block */
+    set_u32(buf + 172, 4000);
+    fe = decode_file_entry(&ctx, buf, sizeof(buf), (uint16_t)7);
+    CHECK(fe == NULL);
 
     /* unsupported strategy type */
     set_u16(buf + 16 + 4, 5);
@@ -416,6 +452,12 @@ static void test_ext_file_entry(void)
     set_u32(buf + 208, 0xffffffff);
     set_u32(buf + 212, 0);
     fe = decode_ext_file_entry(&ctx, buf, sizeof(buf), (uint16_t)7);
+    CHECK(fe == NULL);
+
+    /* p_ad + l_ad > size */
+    make_ext_file_entry(buf, 5, 0, 8, 500, 60, 600);
+    set_u32(buf + 212, 2000);
+    fe = decode_ext_file_entry(&ctx, buf, (size_t)300, (uint16_t)7);
     CHECK(fe == NULL);
 }
 

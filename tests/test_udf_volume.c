@@ -285,6 +285,10 @@ static void test_read_vds_part_number(void)
     static const uint32_t trap_5[] = { 256, 257, 258, 259, 260, 261 };
     static const uint32_t trap_first[] = { 256, 257, 258, 259, 260, 261 };
     static const uint32_t trap_last[] = { 256, 257, 258, 259, 260, 261 };
+    static const uint32_t trap_absent[] = {
+        256, 257, 258, 259, 260, 261,   /* main sequence */
+        300, 301, 302, 303              /* reserve sequence fallback */
+    };
 
     log_init(&cap, &log, &ctx);
 
@@ -317,6 +321,12 @@ static void test_read_vds_part_number(void)
     CHECK_EQ_INT(0, udf_read_vds(&ctx, &m.bi, UDFREAD_PARTITION_LAST, &vds));
     CHECK_EQ_UINT(5, vds.pd.number);
     CHECK_EQ_UINT(6, m.read_calls);
+
+    /* requested partition number not present: main + reserve sequences */
+    log_init(&cap, &log, &ctx);
+    mock_init(&m, image, IMG_BLOCKS);
+    mock_expect(&m, trap_absent, 10);
+    CHECK_EQ_INT(-1, udf_read_vds(&ctx, &m.bi, 9, &vds));
 }
 
 static void test_read_vds_seq(void)
@@ -373,6 +383,157 @@ static void test_read_vds_seq(void)
     CHECK(strstr(cap.buf, "discarding incomplete Volume Descriptor Sequence instance (seq 2)") != NULL);
 }
 
+/* candidate tiering: the highest sequence number prevails regardless of
+ * order (ECMA 167 3/8.4.3), unknown tags are skipped, and partial
+ * instances from different sequences are merged as a last resort */
+static void test_read_vds_precedence(void)
+{
+    struct capture_log cap;
+    udf_log log;
+    ecma_ctx ctx;
+    struct mock_input m;
+    struct volume_descriptor_set vds;
+    static const uint32_t trap_ooo[] = { 256, 257, 258, 259, 260, 261, 262, 263, 264, 265 };
+    static const uint32_t trap_mid[] = { 256, 257, 258, 259, 260, 261, 262, 263, 264 };
+    static const uint32_t trap_unknown[] = { 256, 257, 258, 259, 260, 261 };
+    static const uint32_t trap_split[] = { 256, 257, 258, 300, 301, 302 };
+    static const uint32_t trap_required[] = { 256, 257, 258, 259, 300, 301, 302, 303 };
+    static uint32_t trap_vdp[106];
+    uint32_t i;
+
+    log_init(&cap, &log, &ctx);
+
+    /* out-of-order sequences: seq 5 wins over the later seq 4 */
+    log_init(&cap, &log, &ctx);
+    memset(image, 0, sizeof(image));
+    make_avdp(img_block(256), 257, 9 * UDF_BLOCK_SIZE, 300, 4 * UDF_BLOCK_SIZE);
+    make_vds_block_seq(img_block(257), ECMA_PrimaryVolumeDescriptor, 3);
+    make_partition_block(img_block(258), 3, 100, 1000);
+    set_u32(img_block(258) + 16, 3);
+    make_lvd_block(img_block(259), UDF_BLOCK_SIZE);
+    set_u32(img_block(259) + 16, 3);
+    make_vds_block_seq(img_block(260), ECMA_PrimaryVolumeDescriptor, 5);
+    make_partition_block(img_block(261), 5, 100, 1000);
+    set_u32(img_block(261) + 16, 5);
+    make_lvd_block(img_block(262), UDF_BLOCK_SIZE);
+    set_u32(img_block(262) + 16, 5);
+    make_vds_block_seq(img_block(263), ECMA_PrimaryVolumeDescriptor, 4);
+    make_partition_block(img_block(264), 4, 100, 1000);
+    set_u32(img_block(264) + 16, 4);
+    make_lvd_block(img_block(265), UDF_BLOCK_SIZE);
+    set_u32(img_block(265) + 16, 4);
+    mock_init(&m, image, IMG_BLOCKS);
+    mock_expect(&m, trap_ooo, 10);
+    CHECK_EQ_INT(0, udf_read_vds(&ctx, &m.bi, UDFREAD_PARTITION_FIRST, &vds));
+    CHECK_EQ_UINT(5, vds.pd.number);
+    CHECK_EQ_UINT(10, m.read_calls);
+
+    /* incomplete instance in the middle of the sequence is discarded */
+    log_init(&cap, &log, &ctx);
+    memset(image, 0, sizeof(image));
+    make_avdp(img_block(256), 257, 8 * UDF_BLOCK_SIZE, 300, 4 * UDF_BLOCK_SIZE);
+    make_vds_block_seq(img_block(257), ECMA_PrimaryVolumeDescriptor, 1);
+    make_partition_block(img_block(258), 1, 100, 1000);
+    set_u32(img_block(258) + 16, 1);
+    make_lvd_block(img_block(259), UDF_BLOCK_SIZE);
+    set_u32(img_block(259) + 16, 1);
+    make_vds_block_seq(img_block(260), ECMA_PrimaryVolumeDescriptor, 2);
+    make_vds_block_seq(img_block(261), ECMA_PrimaryVolumeDescriptor, 3);
+    make_partition_block(img_block(262), 3, 100, 1000);
+    set_u32(img_block(262) + 16, 3);
+    make_lvd_block(img_block(263), UDF_BLOCK_SIZE);
+    set_u32(img_block(263) + 16, 3);
+    make_vds_block(img_block(264), ECMA_TerminatingDescriptor);
+    mock_init(&m, image, IMG_BLOCKS);
+    mock_expect(&m, trap_mid, 9);
+    CHECK_EQ_INT(0, udf_read_vds(&ctx, &m.bi, UDFREAD_PARTITION_FIRST, &vds));
+    CHECK_EQ_UINT(3, vds.pd.number);
+    CHECK(strstr(cap.buf, "discarding incomplete Volume Descriptor Sequence instance (seq 2)") != NULL);
+
+    /* unknown descriptor tag inside the sequence is skipped */
+    log_init(&cap, &log, &ctx);
+    memset(image, 0, sizeof(image));
+    make_avdp(img_block(256), 257, 5 * UDF_BLOCK_SIZE, 300, 4 * UDF_BLOCK_SIZE);
+    make_vds_block_seq(img_block(257), ECMA_PrimaryVolumeDescriptor, 1);
+    make_vds_block(img_block(258), 9);   /* not a known descriptor id */
+    make_partition_block(img_block(259), 0, 100, 1000);
+    set_u32(img_block(259) + 16, 1);
+    make_lvd_block(img_block(260), UDF_BLOCK_SIZE);
+    set_u32(img_block(260) + 16, 1);
+    make_vds_block(img_block(261), ECMA_TerminatingDescriptor);
+    mock_init(&m, image, IMG_BLOCKS);
+    mock_expect(&m, trap_unknown, 6);
+    CHECK_EQ_INT(0, udf_read_vds(&ctx, &m.bi, 0, &vds));
+    CHECK_EQ_UINT(0, vds.pd.number);
+    CHECK_EQ_UINT(2048, vds.lvd.block_size);
+
+    /* last resort: PVD from MVDS merged with PD+LVD from RVDS */
+    log_init(&cap, &log, &ctx);
+    memset(image, 0, sizeof(image));
+    make_avdp(img_block(256), 257, 2 * UDF_BLOCK_SIZE, 300, 3 * UDF_BLOCK_SIZE);
+    make_vds_block_seq(img_block(257), ECMA_PrimaryVolumeDescriptor, 5);
+    make_vds_block(img_block(258), ECMA_TerminatingDescriptor);
+    make_partition_block(img_block(300), 0, 100, 1000);
+    set_u32(img_block(300) + 16, 6);
+    make_lvd_block(img_block(301), UDF_BLOCK_SIZE);
+    set_u32(img_block(301) + 16, 6);
+    make_vds_block(img_block(302), ECMA_TerminatingDescriptor);
+    mock_init(&m, image, IMG_BLOCKS);
+    mock_expect(&m, trap_split, 6);
+    CHECK_EQ_INT(0, udf_read_vds(&ctx, &m.bi, 0, &vds));
+    CHECK_EQ_UINT(0, vds.pd.number);
+    CHECK_EQ_UINT(100, vds.pd.start_block);
+    CHECK_EQ_UINT(2048, vds.lvd.block_size);
+
+    /* fallback tier: PVD+PD without LVD is used when no complete
+     * instance exists anywhere */
+    log_init(&cap, &log, &ctx);
+    memset(image, 0, sizeof(image));
+    make_avdp(img_block(256), 257, 3 * UDF_BLOCK_SIZE, 300, 4 * UDF_BLOCK_SIZE);
+    make_vds_block_seq(img_block(257), ECMA_PrimaryVolumeDescriptor, 1);
+    make_partition_block(img_block(258), 0, 100, 1000);
+    set_u32(img_block(258) + 16, 1);
+    make_vds_block(img_block(259), ECMA_TerminatingDescriptor);
+    mock_init(&m, image, IMG_BLOCKS);
+    mock_expect(&m, trap_required, 8);
+    CHECK_EQ_INT(0, udf_read_vds(&ctx, &m.bi, UDFREAD_PARTITION_FIRST, &vds));
+    CHECK_EQ_UINT(0, vds.pd.number);
+    CHECK_EQ_UINT(100, vds.pd.start_block);
+    CHECK_EQ_UINT(0, vds.lvd.block_size);   /* no LVD anywhere */
+    CHECK(strstr(cap.buf, "without Logical Volume Descriptor") != NULL);
+
+    /* corruption guard: absurdly long sequence is aborted */
+    log_init(&cap, &log, &ctx);
+    memset(image, 0, sizeof(image));
+    make_avdp(img_block(256), 257, 20000 * UDF_BLOCK_SIZE, 300, 4 * UDF_BLOCK_SIZE);
+    mock_init(&m, image, IMG_BLOCKS);   /* no expect: reads past the image end fail */
+    CHECK_EQ_INT(-1, udf_read_vds(&ctx, &m.bi, UDFREAD_PARTITION_FIRST, &vds));
+    CHECK(strstr(cap.buf, "too many blocks in Volume Descriptor Sequence") != NULL);
+
+    /* corruption guard: Volume Descriptor Pointer loop is aborted */
+    log_init(&cap, &log, &ctx);
+    log.level = UDFREAD_LOG_ERROR;   /* keep the 101 extent traces out of the capture buffer */
+    memset(image, 0, sizeof(image));
+    for (i = 0; i < 101; i++) {
+        make_vdp_block(img_block(20 + i), 21 + i, UDF_BLOCK_SIZE);
+    }
+    trap_vdp[0] = 256;
+    for (i = 0; i < 101; i++) {
+        trap_vdp[1 + i] = 20 + i;
+    }
+    for (i = 0; i < 4; i++) {
+        trap_vdp[102 + i] = 300 + i;
+    }
+    make_avdp(img_block(256), 20, UDF_BLOCK_SIZE, 300, 4 * UDF_BLOCK_SIZE);
+    mock_init(&m, image, IMG_BLOCKS);
+    mock_expect(&m, trap_vdp, 106);
+    CHECK_EQ_INT(-1, udf_read_vds(&ctx, &m.bi, UDFREAD_PARTITION_FIRST, &vds));
+    CHECK(strstr(cap.buf, "too many Volume Descriptor Pointers") != NULL);
+    /* AVDP + 101 chained pointers + 4 reserve-sequence blocks:
+     * the chain stopped at the 101st pointer */
+    CHECK_EQ_UINT(106, m.read_calls);
+}
+
 static void test_validate_logical_volume(void)
 {
     struct capture_log cap;
@@ -416,6 +577,16 @@ static void test_validate_logical_volume(void)
     lvd.block_size = UDF_BLOCK_SIZE;
     memcpy(lvd.domain_id.identifier, "*OSTA UDF CompliantXYZ", 22);
     CHECK_EQ_INT(0, udf_validate_logical_volume(&ctx, &lvd, &fsd_loc));
+
+    /* older UDF revision suffixes are accepted */
+    memset(&lvd, 0, sizeof(lvd));
+    lvd.block_size = UDF_BLOCK_SIZE;
+    memcpy(lvd.domain_id.identifier, "*OSTA UDF Compliant", 19);
+    set_u16(lvd.domain_id.identifier_suffix, 0x0150);
+    CHECK_EQ_INT(0, udf_validate_logical_volume(&ctx, &lvd, &fsd_loc));
+
+    set_u16(lvd.domain_id.identifier_suffix, 0x0250);
+    CHECK_EQ_INT(0, udf_validate_logical_volume(&ctx, &lvd, &fsd_loc));
 }
 
 static void test_parse_partition_maps(void)
@@ -423,10 +594,15 @@ static void test_parse_partition_maps(void)
     struct capture_log cap;
     udf_log log;
     ecma_ctx ctx;
+    struct mock_input m;
     struct volume_descriptor_set vds;
     struct udf_partitions part;
 
     log_init(&cap, &log, &ctx);
+
+    /* type 1 maps never read blocks: trap all reads */
+    mock_init(&m, image, IMG_BLOCKS);
+    mock_expect(&m, NULL, 0);
 
     /* empty table */
     log_init(&cap, &log, &ctx);
@@ -434,7 +610,7 @@ static void test_parse_partition_maps(void)
     vds.pd.number = 0;
     vds.pd.start_block = 100;
     memset(&part, 0, sizeof(part));
-    CHECK_EQ_INT(-1, udf_parse_partition_maps(&ctx, NULL, &vds, &part));
+    CHECK_EQ_INT(-1, udf_parse_partition_maps(&ctx, &m.bi, &vds, &part));
     CHECK(strstr(cap.buf, "no type 1 partition found") != NULL);
 
     /* valid type 1 */
@@ -442,17 +618,19 @@ static void test_parse_partition_maps(void)
     memset(&vds, 0, sizeof(vds));
     vds.pd.number = 0;
     vds.pd.start_block = 100;
+    vds.pd.num_blocks = 500;
     vds.lvd.num_partition_maps = 1;
     vds.lvd.partition_map_table_length = 6;
     vds.lvd.partition_map_table[0] = 1;
     vds.lvd.partition_map_table[1] = 6;
     set_u16(vds.lvd.partition_map_table + 4, 0);
     memset(&part, 0, sizeof(part));
-    CHECK_EQ_INT(0, udf_parse_partition_maps(&ctx, NULL, &vds, &part));
+    CHECK_EQ_INT(0, udf_parse_partition_maps(&ctx, &m.bi, &vds, &part));
     CHECK_EQ_UINT(1, part.num_partition);
     CHECK_EQ_UINT(0, part.p[0].number);
     CHECK_EQ_UINT(100, part.p[0].lba);
     CHECK_EQ_UINT(0, part.p[0].mirror_lba);
+    CHECK_EQ_UINT(500, part.p[0].length);
 
     /* type 1 referring to another physical partition */
     log_init(&cap, &log, &ctx);
@@ -465,7 +643,7 @@ static void test_parse_partition_maps(void)
     vds.lvd.partition_map_table[1] = 6;
     set_u16(vds.lvd.partition_map_table + 4, 1);
     memset(&part, 0, sizeof(part));
-    CHECK_EQ_INT(-1, udf_parse_partition_maps(&ctx, NULL, &vds, &part));
+    CHECK_EQ_INT(-1, udf_parse_partition_maps(&ctx, &m.bi, &vds, &part));
     CHECK(strstr(cap.buf, "refers to another physical partition") != NULL);
 
     /* two type 1 maps: second one rejected but not fatal */
@@ -482,7 +660,7 @@ static void test_parse_partition_maps(void)
     vds.lvd.partition_map_table[7] = 6;
     set_u16(vds.lvd.partition_map_table + 10, 0);
     memset(&part, 0, sizeof(part));
-    CHECK_EQ_INT(0, udf_parse_partition_maps(&ctx, NULL, &vds, &part));
+    CHECK_EQ_INT(0, udf_parse_partition_maps(&ctx, &m.bi, &vds, &part));
     CHECK_EQ_UINT(1, part.num_partition);
     CHECK(strstr(cap.buf, "more than one type1 partitions not supported") != NULL);
 
@@ -495,7 +673,7 @@ static void test_parse_partition_maps(void)
     vds.lvd.partition_map_table[0] = 1;
     vds.lvd.partition_map_table[1] = 5;
     memset(&part, 0, sizeof(part));
-    CHECK_EQ_INT(-1, udf_parse_partition_maps(&ctx, NULL, &vds, &part));
+    CHECK_EQ_INT(-1, udf_parse_partition_maps(&ctx, &m.bi, &vds, &part));
     CHECK(strstr(cap.buf, "invalid type 1 partition map length") != NULL);
 
     /* length < 2 */
@@ -507,7 +685,7 @@ static void test_parse_partition_maps(void)
     vds.lvd.partition_map_table[0] = 1;
     vds.lvd.partition_map_table[1] = 1;
     memset(&part, 0, sizeof(part));
-    CHECK_EQ_INT(-1, udf_parse_partition_maps(&ctx, NULL, &vds, &part));
+    CHECK_EQ_INT(-1, udf_parse_partition_maps(&ctx, &m.bi, &vds, &part));
     CHECK(strstr(cap.buf, "invalid partition map length") != NULL);
 
     /* map extends past the table */
@@ -519,7 +697,7 @@ static void test_parse_partition_maps(void)
     vds.lvd.partition_map_table[0] = 1;
     vds.lvd.partition_map_table[1] = 6;
     memset(&part, 0, sizeof(part));
-    CHECK_EQ_INT(-1, udf_parse_partition_maps(&ctx, NULL, &vds, &part));
+    CHECK_EQ_INT(-1, udf_parse_partition_maps(&ctx, &m.bi, &vds, &part));
     CHECK(strstr(cap.buf, "partition map table too short") != NULL);
 
     /* table length > 2048: clamped */
@@ -533,9 +711,24 @@ static void test_parse_partition_maps(void)
     vds.lvd.partition_map_table[1] = 6;
     set_u16(vds.lvd.partition_map_table + 4, 0);
     memset(&part, 0, sizeof(part));
-    CHECK_EQ_INT(0, udf_parse_partition_maps(&ctx, NULL, &vds, &part));
+    CHECK_EQ_INT(0, udf_parse_partition_maps(&ctx, &m.bi, &vds, &part));
     CHECK_EQ_UINT(1, part.num_partition);
     CHECK(strstr(cap.buf, "partition map table too big") != NULL);
+
+    /* type 1 map volume sequence number is not validated */
+    log_init(&cap, &log, &ctx);
+    memset(&vds, 0, sizeof(vds));
+    vds.pd.number = 0;
+    vds.pd.start_block = 100;
+    vds.lvd.num_partition_maps = 1;
+    vds.lvd.partition_map_table_length = 6;
+    vds.lvd.partition_map_table[0] = 1;
+    vds.lvd.partition_map_table[1] = 6;
+    set_u16(vds.lvd.partition_map_table + 2, 7);   /* VSN != PD */
+    set_u16(vds.lvd.partition_map_table + 4, 0);
+    memset(&part, 0, sizeof(part));
+    CHECK_EQ_INT(0, udf_parse_partition_maps(&ctx, &m.bi, &vds, &part));
+    CHECK_EQ_UINT(1, part.num_partition);
 }
 
 /* type 1 map (ref 0) + type 2 metadata map (ref, lba, mirror_lba) */
@@ -709,6 +902,7 @@ RUN_TESTS(
     TEST_ENTRY(test_read_vds_vdp),
     TEST_ENTRY(test_read_vds_part_number),
     TEST_ENTRY(test_read_vds_seq),
+    TEST_ENTRY(test_read_vds_precedence),
     TEST_ENTRY(test_validate_logical_volume),
     TEST_ENTRY(test_parse_partition_maps),
     TEST_ENTRY(test_parse_partition_maps_metadata),
