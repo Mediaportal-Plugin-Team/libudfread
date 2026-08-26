@@ -231,6 +231,9 @@ static struct udf_dir *_cache_subdir(udfread *udf, struct udf_dir *dir, uint32_t
 {
     struct udf_dir *subdir, **subdirs;
 
+    if (index >= dir->entries.num_entries) {
+        return NULL;
+    }
     if (!(dir->entries.files[index].characteristic & CHAR_FLAG_DIR)) {
         return NULL;
     }
