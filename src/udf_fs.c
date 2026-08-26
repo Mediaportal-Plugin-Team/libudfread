@@ -625,6 +625,33 @@ static int _parse_dir_file(struct udf_fs *fs, const uint8_t *data, uint32_t leng
     return 0;
 }
 
+/* best effort check: is the first block of the extent entirely zeroed ? */
+static int _is_zero_block(struct udf_fs *fs, const struct long_ad *loc)
+{
+    uint8_t  buf[UDF_BLOCK_SIZE];
+    int      part_idx;
+    uint32_t lba, i;
+
+    part_idx = _partition_index(&fs->part, loc->partition);
+    if (part_idx < 0) {
+        return 0;
+    }
+
+    lba = fs->part.p[part_idx].lba + loc->lba;
+    if (fs->input->read(fs->input, lba, buf, 1, 0) != 1) {
+        return 0;
+    }
+
+    for (i = 0; i < UDF_BLOCK_SIZE; i++) {
+        if (buf[i]) {
+            return 0;
+        }
+    }
+
+    udf_log("directory extent at part %u lba %u is zeroed\n", loc->partition, loc->lba);
+    return 1;
+}
+
 static int _read_dir_file(struct udf_fs *fs, const struct long_ad *loc,
                           struct udf_dir_entries *dir)
 {
@@ -636,6 +663,12 @@ static int _read_dir_file(struct udf_fs *fs, const struct long_ad *loc,
 
     data = _read_metadata(fs, loc, &tag_id);
     if (!data) {
+        /* a directory extent that is entirely zeroed holds no descriptors:
+         * treat it as an empty directory instead of an error (best effort
+         * on damaged / interrupted-write discs) */
+        if (_is_zero_block(fs, loc)) {
+            return 0;
+        }
         udf_error("reading directory file failed\n");
         return -1;
     }
