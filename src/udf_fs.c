@@ -532,12 +532,18 @@ static int _parse_dir_file(struct udf_fs *fs, const uint8_t *data, uint32_t leng
                            struct udf_dir_entries *dir)
 {
     struct file_identifier fid;
-    const uint8_t *p   = data;
+    const uint8_t *p   = data, *q;
     const uint8_t *end = data + length;
     uint32_t       capacity = dir->num_entries;
     int            tag_id;
 
     if (length < 16) {
+        return 0;
+    }
+
+    /* Treat all zero data as an empty directory instead of a parse error */
+    for (q = data; q < end && !*q; q++) ;
+    if (q == end) {
         return 0;
     }
 
