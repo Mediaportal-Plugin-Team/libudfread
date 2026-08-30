@@ -21,7 +21,7 @@ add_project_arguments('-DHAVE_CONFIG_H=1', language: 'c')
 libudfread_inc_dirs = include_directories('.', 'src', 'src/udfread')
 
 # The version number for the shared library
-libudfread_soname_version = '3.0.0'
+libudfread_soname_version = '3.1.0'
 
 libudfread_version = meson.project_version()
 libudfread_version_split = libudfread_version.split('.')
