@@ -1,3 +1,25 @@
+????-??-??:  Version 1.3.0
+- udfread_file_open(): reject symbolic links.
+- udfread_file_seek(): allow seeking past end (like POSIX seek).
+- udfread_get_version(): allow NULL output pointers.
+- udfread_readdir(): ignore deleted files.
+- API does not accept empty file and directory names anymore.
+- Add udfread_select_partition().
+- Add udfread_set_log() and udfread_set_loglevel().
+- Add capturing log to file (UDFREAD_LOG_FILE environment variable).
+- Add warning if UDF 2.60 metadata partition is fragmented (unsupported).
+- Fix lseek/pread regression on some 32-bit systems.
+- Fix integer overflows with invalid input.
+- Fix infinite loop when parsing invalid VDS or allocation extents.
+- Fix leak when udfread_open*() is called multiple times.
+- Fix directory cache thread safety.
+- Fix error when opening empty directory.
+- Improve MSVC and C++ compatibility.
+- Improve API documentation.
+- Improve Volume Descriptor Sequense parsing resilience.
+- Improve UDF conformance and error resilience.
+- Improve performance with huge directories.
+
 2025-08-18:  Version 1.2.0
 - Add Meson build system support.
 - Use visibility attributes for exported symbols.
