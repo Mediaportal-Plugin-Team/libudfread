@@ -23,9 +23,26 @@ test-debian:
         - docker
         - amd64
     script:
-        - meson setup build -Dbuildtype=release -Denable_tests=true
+        - meson setup build -Db_sanitize=address,undefined -Denable_tests=true
         - meson compile -C build
         - meson test -C build --print-errorlogs
+
+test-win:
+    image: registry.videolan.org/dav1d-debian-unstable:20250207200301
+    stage: test
+    tags:
+        - docker
+        - amd64
+    script:
+        - meson setup build --cross-file package/crossfiles/${CROSSFILE}.meson
+                            -Denable_tests=true
+                            -Dbuildtype=release
+                            -Denable_examples=true
+        - meson compile -C build
+        - meson test -C build --print-errorlogs
+    parallel:
+      matrix:
+        - CROSSFILE: [i686-w64-mingw32, x86_64-w64-mingw32]
 
 build-macos:
     stage: build
