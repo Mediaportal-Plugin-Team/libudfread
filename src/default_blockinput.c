@@ -202,7 +202,7 @@ static int _open_win32(const char *path, int flags)
     if (wlen < 1) {
         return -1;
     }
-    wpath = (wchar_t*)malloc(sizeof(wchar_t) * wlen);
+    wpath = (wchar_t*)malloc(sizeof(wchar_t) * (size_t)wlen);
     if (!wpath) {
         return -1;
     }
